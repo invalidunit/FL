@@ -1,17 +1,16 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var path: [URL] = []
     @State private var currentURL: URL = FileService.shared.documentsURL
     @State private var showPathBar = true
     
     var body: some View {
-        NavigationStack(path: $path) {
+        NavigationView {
             VStack(spacing: 0) {
                 // Filza 风格路径栏
                 if showPathBar {
                     PathBar(url: currentURL) { tappedURL in
-                        navigateTo(tappedURL)
+                        currentURL = tappedURL
                     }
                     .background(Color(.systemGroupedBackground))
                     Divider()
@@ -19,7 +18,6 @@ struct ContentView: View {
                 
                 // 核心列表（UIKit）
                 FileListRepresentable(url: currentURL) { newURL in
-                    path.append(newURL)
                     currentURL = newURL
                 }
                 .ignoresSafeArea(edges: .bottom)
@@ -27,26 +25,22 @@ struct ContentView: View {
             .navigationTitle(currentURL.lastPathComponent)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: goUp) {
                         Image(systemName: "chevron.left")
                     }
                     .disabled(currentURL == FileService.shared.documentsURL)
                 }
                 
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: { showPathBar.toggle() }) {
                         Image(systemName: showPathBar ? "eye.slash" : "eye")
                     }
                 }
             }
-            .navigationDestination(for: URL.self) { url in
-                // 子目录会通过 Representable 内部处理，这里保持路径同步
-                EmptyView()
-            }
         }
+        .navigationViewStyle(.stack)
         .onAppear {
-            path = []
             currentURL = FileService.shared.documentsURL
         }
     }
@@ -55,14 +49,7 @@ struct ContentView: View {
         let parent = currentURL.deletingLastPathComponent()
         if parent.pathComponents.count >= FileService.shared.documentsURL.pathComponents.count {
             currentURL = parent
-            if !path.isEmpty { path.removeLast() }
         }
-    }
-    
-    private func navigateTo(_ url: URL) {
-        currentURL = url
-        // 简化路径重建（生产环境可维护完整栈）
-        path = []
     }
 }
 
