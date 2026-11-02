@@ -5,11 +5,34 @@ class FileService {
     
     private let fileManager = FileManager.default
     
+    /// 沙盒根目录（Documents 的上级）
+    private var sandboxRoot: URL {
+        documentsURL.deletingLastPathComponent()
+    }
+    
     var documentsURL: URL {
         fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
     
+    /// 回收站（与 Documents 平行）
+    var trashURL: URL {
+        sandboxRoot.appendingPathComponent("Trash")
+    }
+    
+    init() {
+        // 确保 Trash 存在
+        try? fileManager.createDirectory(at: trashURL, withIntermediateDirectories: true)
+    }
+    
+    /// 是否允许进入这个路径（只允许 Documents 及其子目录）
+    func isAllowed(_ url: URL) -> Bool {
+        let docs = documentsURL.standardizedFileURL.path
+        let target = url.standardizedFileURL.path
+        return target == docs || target.hasPrefix(docs + "/")
+    }
+    
     func contents(of url: URL) -> [FileItem] {
+        guard isAllowed(url) else { return [] }
         do {
             let urls = try fileManager.contentsOfDirectory(
                 at: url,
@@ -22,7 +45,6 @@ class FileService {
                 let isDir = values?.isDirectory ?? false
                 let size = Int64(values?.fileSize ?? 0)
                 let date = values?.contentModificationDate
-                let perms = isDir ? "drwxr-xr-x" : "-rw-r--r--"
                 
                 return FileItem(
                     url: itemURL,
@@ -30,28 +52,31 @@ class FileService {
                     isDirectory: isDir,
                     size: size,
                     modificationDate: date,
-                    permissions: perms
+                    permissions: isDir ? "drwxr-xr-x" : "-rw-r--r--"
                 )
             }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         } catch {
-            print("读取目录失败: \(error)")
             return []
         }
     }
     
     func createFolder(named name: String, in parent: URL) throws {
+        guard isAllowed(parent) else { return }
         let newURL = parent.appendingPathComponent(name)
         try fileManager.createDirectory(at: newURL, withIntermediateDirectories: false)
     }
     
     func createEmptyFile(named name: String, in parent: URL) throws {
+        guard isAllowed(parent) else { return }
         let newURL = parent.appendingPathComponent(name)
-        let data = Data()
-        try data.write(to: newURL)
+        try Data().write(to: newURL)
     }
     
-    func delete(item: FileItem) throws {
-        try fileManager.removeItem(at: item.url)
+    /// 移动到回收站
+    func moveToTrash(item: FileItem) throws {
+        let dest = trashURL.appendingPathComponent(item.name)
+        let finalDest = uniqueURL(dest)
+        try fileManager.moveItem(at: item.url, to: finalDest)
     }
     
     func rename(item: FileItem, to newName: String) throws {
@@ -60,7 +85,28 @@ class FileService {
     }
     
     func copy(item: FileItem, to destination: URL) throws {
-        let dest = destination.appendingPathComponent(item.name)
+        guard isAllowed(destination) else { return }
+        let dest = uniqueURL(destination.appendingPathComponent(item.name))
         try fileManager.copyItem(at: item.url, to: dest)
+    }
+    
+    func move(item: FileItem, to destination: URL) throws {
+        guard isAllowed(destination) else { return }
+        let dest = uniqueURL(destination.appendingPathComponent(item.name))
+        try fileManager.moveItem(at: item.url, to: dest)
+    }
+    
+    /// 避免重名
+    private func uniqueURL(_ url: URL) -> URL {
+        var result = url
+        var i = 1
+        while fileManager.fileExists(atPath: result.path) {
+            let name = url.deletingPathExtension().lastPathComponent
+            let ext = url.pathExtension
+            let newName = ext.isEmpty ? "\(name) (\(i))" : "\(name) (\(i)).\(ext)"
+            result = url.deletingLastPathComponent().appendingPathComponent(newName)
+            i += 1
+        }
+        return result
     }
 }

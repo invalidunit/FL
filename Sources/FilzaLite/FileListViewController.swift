@@ -11,7 +11,11 @@ class FileListViewController: UITableViewController {
     private var isEditingMode = false
     private var selected = Set<FileItem>()
     
+    private var clipboard: [FileItem] = []
+    private var clipboardMode: ClipboardMode = .none
+    
     enum SortMode { case name, date, size }
+    enum ClipboardMode { case none, copy, move }
     
     init(url: URL) {
         self.currentURL = url
@@ -103,14 +107,14 @@ class FileListViewController: UITableViewController {
     private func setupBottomBar(editing: Bool) {
         let flex = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
         if editing {
-            let copy = UIBarButtonItem(title: "复制", style: .plain, target: self, action: #selector(copyTapped))
-            let move = UIBarButtonItem(title: "移动", style: .plain, target: self, action: #selector(moveTapped))
-            let rename = UIBarButtonItem(title: "重命名", style: .plain, target: self, action: #selector(renameTapped))
-            let trash = UIBarButtonItem(title: "回收站", style: .plain, target: self, action: #selector(trashTapped))
-            let more = UIBarButtonItem(title: "更多", style: .plain, target: self, action: #selector(moreTapped))
+            let copy = makeToolbarItem(title: "复制", image: "doc.on.doc", action: #selector(copyTapped))
+            let move = makeToolbarItem(title: "移动", image: "folder", action: #selector(moveTapped))
+            let rename = makeToolbarItem(title: "重命名", image: "pencil", action: #selector(renameTapped))
+            let trash = makeToolbarItem(title: "回收站", image: "trash", action: #selector(trashTapped))
+            let more = makeToolbarItem(title: "更多", image: "square.and.arrow.up", action: #selector(moreTapped))
             toolbarItems = [copy, flex, move, flex, rename, flex, trash, flex, more]
         } else {
-            let clip = UIBarButtonItem(image: UIImage(systemName: "doc.on.clipboard"), style: .plain, target: nil, action: nil)
+            let clip = UIBarButtonItem(image: UIImage(systemName: "doc.on.clipboard"), style: .plain, target: self, action: #selector(pasteTapped))
             let clock = UIBarButtonItem(image: UIImage(systemName: "clock"), style: .plain, target: nil, action: nil)
             let star = UIBarButtonItem(image: UIImage(systemName: "star"), style: .plain, target: nil, action: nil)
             let gear = UIBarButtonItem(image: UIImage(systemName: "gear"), style: .plain, target: nil, action: nil)
@@ -118,6 +122,12 @@ class FileListViewController: UITableViewController {
             toolbarItems = [clip, flex, clock, flex, star, flex, gear, flex, win]
         }
         navigationController?.isToolbarHidden = false
+    }
+    
+    private func makeToolbarItem(title: String, image: String, action: Selector) -> UIBarButtonItem {
+        let item = UIBarButtonItem(image: UIImage(systemName: image), style: .plain, target: self, action: action)
+        item.title = title
+        return item
     }
     
     func loadItems() {
@@ -145,7 +155,12 @@ class FileListViewController: UITableViewController {
         tableView.tableFooterView = label
     }
     
-    @objc private func goBack() { onGoBack?() }
+    @objc private func goBack() {
+        let parent = currentURL.deletingLastPathComponent()
+        if FileService.shared.isAllowed(parent) {
+            onGoBack?()
+        }
+    }
     
     @objc private func toggleEdit() {
         isEditingMode.toggle()
@@ -172,12 +187,26 @@ class FileListViewController: UITableViewController {
         loadItems()
     }
     
-    @objc private func addTapped() {
+    @objc private func addTapped() { showCreateSheet() }
+    @objc private func moreTapped() { showCreateSheet() }
+    
+    private func showCreateSheet() {
         let sheet = UIAlertController(title: "更多", message: nil, preferredStyle: .actionSheet)
-        sheet.addAction(UIAlertAction(title: "新文本", style: .default) { _ in self.promptNewFile() })
-        sheet.addAction(UIAlertAction(title: "新建文件夹", style: .default) { _ in self.promptNewFolder() })
-        sheet.addAction(UIAlertAction(title: "快捷链接", style: .default) { _ in })
+        
+        let newText = UIAlertAction(title: "新文本", style: .default) { _ in self.promptNewFile() }
+        newText.setValue(UIImage(systemName: "doc.badge.plus"), forKey: "image")
+        
+        let newFolder = UIAlertAction(title: "新建文件夹", style: .default) { _ in self.promptNewFolder() }
+        newFolder.setValue(UIImage(systemName: "folder.badge.plus"), forKey: "image")
+        
+        let link = UIAlertAction(title: "快捷链接", style: .default) { _ in }
+        link.setValue(UIImage(systemName: "link.badge.plus"), forKey: "image")
+        
+        sheet.addAction(newText)
+        sheet.addAction(newFolder)
+        sheet.addAction(link)
         sheet.addAction(UIAlertAction(title: "取消", style: .cancel))
+        
         if let p = sheet.popoverPresentationController {
             p.barButtonItem = navigationItem.leftBarButtonItem
         }
@@ -210,17 +239,113 @@ class FileListViewController: UITableViewController {
         present(a, animated: true)
     }
     
-    @objc private func copyTapped() {}
-    @objc private func moveTapped() {}
-    @objc private func renameTapped() {}
+    @objc private func copyTapped() {
+        clipboard = Array(selected)
+        clipboardMode = .copy
+        flashMessage("已复制 \(clipboard.count) 项")
+    }
+    
+    @objc private func moveTapped() {
+        clipboard = Array(selected)
+        clipboardMode = .move
+        flashMessage("已剪切 \(clipboard.count) 项")
+    }
+    
+    @objc private func pasteTapped() {
+        guard !clipboard.isEmpty else { return }
+        for item in clipboard {
+            switch clipboardMode {
+            case .copy: try? FileService.shared.copy(item: item, to: currentURL)
+            case .move: try? FileService.shared.move(item: item, to: currentURL)
+            case .none: break
+            }
+        }
+        if clipboardMode == .move {
+            clipboard.removeAll()
+            clipboardMode = .none
+        }
+        animateReload(fromRight: true)
+    }
+    
+    @objc private func renameTapped() {
+        guard selected.count == 1, let item = selected.first else {
+            flashMessage("请只选中一项进行重命名")
+            return
+        }
+        let a = UIAlertController(title: "重命名", message: nil, preferredStyle: .alert)
+        a.addTextField { $0.text = item.name }
+        a.addAction(UIAlertAction(title: "取消", style: .cancel))
+        a.addAction(UIAlertAction(title: "Done", style: .default) { _ in
+            if let name = a.textFields?.first?.text?.trimmingCharacters(in: .whitespaces), !name.isEmpty, name != item.name {
+                try? FileService.shared.rename(item: item, to: name)
+                self.selected.removeAll()
+                self.animateReload(fromRight: false)
+            }
+        })
+        present(a, animated: true)
+    }
+    
     @objc private func trashTapped() {
         for item in selected {
-            try? FileService.shared.delete(item: item)
+            try? FileService.shared.moveToTrash(item: item)
         }
         selected.removeAll()
-        loadItems()
+        animateReload(fromRight: false)
     }
-    @objc private func moreTapped() {}
+    
+    private func animateReload(fromRight: Bool) {
+        let direction: CGFloat = fromRight ? 1 : -1
+        UIView.transition(with: tableView, duration: 0.22, options: .transitionCrossDissolve, animations: {
+            self.loadItems()
+        })
+        for cell in tableView.visibleCells {
+            cell.transform = CGAffineTransform(translationX: direction * 40, y: 0)
+            cell.alpha = 0.6
+        }
+        UIView.animate(withDuration: 0.22, delay: 0, options: .curveEaseOut) {
+            for cell in self.tableView.visibleCells {
+                cell.transform = .identity
+                cell.alpha = 1
+            }
+        }
+    }
+    
+    private func flashMessage(_ text: String) {
+        let alert = UIAlertController(title: nil, message: text, preferredStyle: .alert)
+        present(alert, animated: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            alert.dismiss(animated: true)
+        }
+    }
+    
+    // MARK: - 文件类型判断与打开
+    
+    private func isTextFile(_ item: FileItem) -> Bool {
+        let ext = item.url.pathExtension.lowercased()
+        let textExts: Set<String> = ["txt", "text", "md", "json", "xml", "html", "htm", "css", "js", "swift", "m", "h", "c", "cpp", "py", "sh", "log", "plist", "yaml", "yml", "ini", "conf", "cfg"]
+        if textExts.contains(ext) { return true }
+        
+        // 无后缀时检测内容
+        if ext.isEmpty {
+            guard let data = try? Data(contentsOf: item.url, options: .mappedIfSafe) else { return false }
+            // 前 4KB 里如果大部分是可打印字符，就当文本
+            let sample = data.prefix(4096)
+            if sample.isEmpty { return true }
+            let printable = sample.filter { $0 >= 32 && $0 < 127 || $0 == 9 || $0 == 10 || $0 == 13 }.count
+            return Double(printable) / Double(sample.count) > 0.85
+        }
+        return false
+    }
+    
+    private func openFile(_ item: FileItem) {
+        if isTextFile(item) {
+            let editor = TextEditorViewController(url: item.url)
+            navigationController?.pushViewController(editor, animated: true)
+        } else {
+            // 非文本暂时只显示属性
+            showInfo(item)
+        }
+    }
     
     // MARK: Table
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { items.count }
@@ -240,8 +365,13 @@ class FileListViewController: UITableViewController {
             return
         }
         tableView.deselectRow(at: indexPath, animated: true)
-        if item.isDirectory { onNavigate?(item.url) }
-        else { showInfo(item) }
+        if item.isDirectory {
+            if FileService.shared.isAllowed(item.url) {
+                onNavigate?(item.url)
+            }
+        } else {
+            openFile(item)
+        }
     }
     
     override func tableView(_ tableView: UITableView, didDeselectRowAt indexPath: IndexPath) {
