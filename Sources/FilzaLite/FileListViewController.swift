@@ -37,14 +37,14 @@ class FileListViewController: UITableViewController {
     }
     
     private func setupNavigation() {
-        let back = UIBarButtonItem(title: parentName.isEmpty ? "返回" : parentName, style: .plain, target: self, action: #selector(goBack))
+        let back = UIBarButtonItem(title: parentName.isEmpty ? NSLocalizedString("Back", comment: "") : parentName, style: .plain, target: self, action: #selector(goBack))
         navigationItem.leftBarButtonItem = back
-        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "编辑", style: .plain, target: self, action: #selector(toggleEdit))
+        navigationItem.rightBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Edit", comment: ""), style: .plain, target: self, action: #selector(toggleEdit))
         title = currentURL.lastPathComponent
     }
     
     func updateNavigation() {
-        navigationItem.leftBarButtonItem?.title = parentName.isEmpty ? "返回" : parentName
+        navigationItem.leftBarButtonItem?.title = parentName.isEmpty ? NSLocalizedString("Back", comment: "") : parentName
         title = currentURL.lastPathComponent
     }
     
@@ -56,13 +56,13 @@ class FileListViewController: UITableViewController {
         search.setImage(UIImage(systemName: "magnifyingglass"), for: .normal)
         search.frame = CGRect(x: 10, y: 8, width: 28, height: 24)
         
-        let name = makeSortButton("名称", tag: 0)
+        let name = makeSortButton(NSLocalizedString("Name", comment: ""), tag: 0)
         name.frame = CGRect(x: 50, y: 6, width: 70, height: 28)
         
-        let date = makeSortButton("日期", tag: 1)
+        let date = makeSortButton(NSLocalizedString("Date", comment: ""), tag: 1)
         date.frame = CGRect(x: 130, y: 6, width: 60, height: 28)
         
-        let size = makeSortButton("大小", tag: 2)
+        let size = makeSortButton(NSLocalizedString("Size", comment: ""), tag: 2)
         size.frame = CGRect(x: 200, y: 6, width: 60, height: 28)
         
         let toggle = UIButton(type: .system)
@@ -107,21 +107,24 @@ class FileListViewController: UITableViewController {
     private func setupBottomBar(editing: Bool) {
         let flex = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
         if editing {
-            let copy = makeToolbarItem(title: "复制", image: "doc.on.doc", action: #selector(copyTapped))
-            let move = makeToolbarItem(title: "移动", image: "folder", action: #selector(moveTapped))
-            let rename = makeToolbarItem(title: "重命名", image: "pencil", action: #selector(renameTapped))
-            let trash = makeToolbarItem(title: "回收站", image: "trash", action: #selector(trashTapped))
-            let more = makeToolbarItem(title: "更多", image: "square.and.arrow.up", action: #selector(moreTapped))
+            let copy = makeToolbarItem(title: NSLocalizedString("Copy", comment: ""), image: "doc.on.doc", action: #selector(copyTapped))
+            let move = makeToolbarItem(title: NSLocalizedString("Move", comment: ""), image: "folder", action: #selector(moveTapped))
+            let rename = makeToolbarItem(title: NSLocalizedString("Rename", comment: ""), image: "pencil", action: #selector(renameTapped))
+            let trash = makeToolbarItem(title: NSLocalizedString("Trash", comment: ""), image: "trash", action: #selector(trashTapped))
+            let more = makeToolbarItem(title: NSLocalizedString("More", comment: ""), image: "square.and.arrow.up", action: #selector(moreTapped))
             toolbarItems = [copy, flex, move, flex, rename, flex, trash, flex, more]
         } else {
             let clip = UIBarButtonItem(image: UIImage(systemName: "doc.on.clipboard"), style: .plain, target: self, action: #selector(pasteTapped))
-            let clock = UIBarButtonItem(image: UIImage(systemName: "clock"), style: .plain, target: nil, action: nil)
-            let star = UIBarButtonItem(image: UIImage(systemName: "star"), style: .plain, target: nil, action: nil)
-            let gear = UIBarButtonItem(image: UIImage(systemName: "gear"), style: .plain, target: nil, action: nil)
-            let win = UIBarButtonItem(image: UIImage(systemName: "square.on.square"), style: .plain, target: nil, action: nil)
+            let clock = UIBarButtonItem(image: UIImage(systemName: "clock"), style: .plain, target: self, action: #selector(recentsTapped))
+            let star = UIBarButtonItem(image: UIImage(systemName: "star"), style: .plain, target: self, action: #selector(favoritesTapped))
+            let gear = UIBarButtonItem(image: UIImage(systemName: "gear"), style: .plain, target: self, action: #selector(settingsTapped))
+            let win = UIBarButtonItem(image: UIImage(systemName: "square.on.square"), style: .plain, target: self, action: #selector(windowsTapped))
             toolbarItems = [clip, flex, clock, flex, star, flex, gear, flex, win]
         }
         navigationController?.isToolbarHidden = false
+        // 底部栏背景
+        navigationController?.toolbar.barTintColor = .secondarySystemBackground
+        navigationController?.toolbar.isTranslucent = false
     }
     
     private func makeToolbarItem(title: String, image: String, action: Selector) -> UIBarButtonItem {
@@ -167,10 +170,10 @@ class FileListViewController: UITableViewController {
         tableView.setEditing(isEditingMode, animated: true)
         if isEditingMode {
             navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add, target: self, action: #selector(addTapped))
-            navigationItem.rightBarButtonItem = UIBarButtonItem(title: "完成", style: .done, target: self, action: #selector(toggleEdit))
+            navigationItem.rightBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Done", comment: ""), style: .done, target: self, action: #selector(toggleEdit))
         } else {
-            navigationItem.leftBarButtonItem = UIBarButtonItem(title: parentName.isEmpty ? "返回" : parentName, style: .plain, target: self, action: #selector(goBack))
-            navigationItem.rightBarButtonItem = UIBarButtonItem(title: "编辑", style: .plain, target: self, action: #selector(toggleEdit))
+            navigationItem.leftBarButtonItem = UIBarButtonItem(title: parentName.isEmpty ? NSLocalizedString("Back", comment: "") : parentName, style: .plain, target: self, action: #selector(goBack))
+            navigationItem.rightBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Edit", comment: ""), style: .plain, target: self, action: #selector(toggleEdit))
             selected.removeAll()
         }
         setupBottomBar(editing: isEditingMode)
@@ -191,21 +194,21 @@ class FileListViewController: UITableViewController {
     @objc private func moreTapped() { showCreateSheet() }
     
     private func showCreateSheet() {
-        let sheet = UIAlertController(title: "更多", message: nil, preferredStyle: .actionSheet)
+        let sheet = UIAlertController(title: NSLocalizedString("More", comment: ""), message: nil, preferredStyle: .actionSheet)
         
-        let newText = UIAlertAction(title: "新文本", style: .default) { _ in self.promptNewFile() }
+        let newText = UIAlertAction(title: NSLocalizedString("New Text", comment: ""), style: .default) { _ in self.promptNewFile() }
         newText.setValue(UIImage(systemName: "doc.badge.plus"), forKey: "image")
         
-        let newFolder = UIAlertAction(title: "新建文件夹", style: .default) { _ in self.promptNewFolder() }
+        let newFolder = UIAlertAction(title: NSLocalizedString("New Folder", comment: ""), style: .default) { _ in self.promptNewFolder() }
         newFolder.setValue(UIImage(systemName: "folder.badge.plus"), forKey: "image")
         
-        let link = UIAlertAction(title: "快捷链接", style: .default) { _ in }
+        let link = UIAlertAction(title: NSLocalizedString("Shortcut", comment: ""), style: .default) { _ in }
         link.setValue(UIImage(systemName: "link.badge.plus"), forKey: "image")
         
         sheet.addAction(newText)
         sheet.addAction(newFolder)
         sheet.addAction(link)
-        sheet.addAction(UIAlertAction(title: "取消", style: .cancel))
+        sheet.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
         
         if let p = sheet.popoverPresentationController {
             p.barButtonItem = navigationItem.leftBarButtonItem
@@ -213,10 +216,11 @@ class FileListViewController: UITableViewController {
         present(sheet, animated: true)
     }
     
+    // Filza 风格输入框：Cancel / 输入框 / Done
     private func promptNewFolder() {
-        let a = UIAlertController(title: "新建文件夹", message: nil, preferredStyle: .alert)
-        a.addTextField { $0.placeholder = "未命名文件夹" }
-        a.addAction(UIAlertAction(title: "取消", style: .cancel))
+        let a = UIAlertController(title: nil, message: nil, preferredStyle: .alert)
+        a.addTextField { $0.placeholder = "Untitled Folder" }
+        a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         a.addAction(UIAlertAction(title: "Done", style: .default) { _ in
             if let name = a.textFields?.first?.text?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
                 try? FileService.shared.createFolder(named: name, in: self.currentURL)
@@ -227,9 +231,9 @@ class FileListViewController: UITableViewController {
     }
     
     private func promptNewFile() {
-        let a = UIAlertController(title: "新文本", message: nil, preferredStyle: .alert)
-        a.addTextField { $0.placeholder = "未命名文件.txt" }
-        a.addAction(UIAlertAction(title: "取消", style: .cancel))
+        let a = UIAlertController(title: nil, message: nil, preferredStyle: .alert)
+        a.addTextField { $0.placeholder = "Untitled.txt" }
+        a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         a.addAction(UIAlertAction(title: "Done", style: .default) { _ in
             if let name = a.textFields?.first?.text?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
                 try? FileService.shared.createEmptyFile(named: name, in: self.currentURL)
@@ -242,13 +246,13 @@ class FileListViewController: UITableViewController {
     @objc private func copyTapped() {
         clipboard = Array(selected)
         clipboardMode = .copy
-        flashMessage("已复制 \(clipboard.count) 项")
+        flashMessage("Copied \(clipboard.count) item(s)")
     }
     
     @objc private func moveTapped() {
         clipboard = Array(selected)
         clipboardMode = .move
-        flashMessage("已剪切 \(clipboard.count) 项")
+        flashMessage("Cut \(clipboard.count) item(s)")
     }
     
     @objc private func pasteTapped() {
@@ -269,12 +273,12 @@ class FileListViewController: UITableViewController {
     
     @objc private func renameTapped() {
         guard selected.count == 1, let item = selected.first else {
-            flashMessage("请只选中一项进行重命名")
+            flashMessage("Select only one item to rename")
             return
         }
-        let a = UIAlertController(title: "重命名", message: nil, preferredStyle: .alert)
+        let a = UIAlertController(title: nil, message: nil, preferredStyle: .alert)
         a.addTextField { $0.text = item.name }
-        a.addAction(UIAlertAction(title: "取消", style: .cancel))
+        a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         a.addAction(UIAlertAction(title: "Done", style: .default) { _ in
             if let name = a.textFields?.first?.text?.trimmingCharacters(in: .whitespaces), !name.isEmpty, name != item.name {
                 try? FileService.shared.rename(item: item, to: name)
@@ -291,6 +295,33 @@ class FileListViewController: UITableViewController {
         }
         selected.removeAll()
         animateReload(fromRight: false)
+    }
+    
+    // 底部栏功能（视频里的收藏夹 / 最近 / 设置）
+    @objc private func favoritesTapped() {
+        let vc = SimpleListViewController(title: NSLocalizedString("Favorites", comment: ""), items: [
+            "[jbroot]", "[rootfs]", "/rootfs/var", "Documents", "Applications", "CrashReporter"
+        ])
+        let nav = UINavigationController(rootViewController: vc)
+        present(nav, animated: true)
+    }
+    
+    @objc private func recentsTapped() {
+        let vc = SimpleListViewController(title: NSLocalizedString("Recents", comment: ""), items: [
+            "Filza1", "Filza.entitlements", "build.yml", "Packages", "control"
+        ])
+        let nav = UINavigationController(rootViewController: vc)
+        present(nav, animated: true)
+    }
+    
+    @objc private func settingsTapped() {
+        let vc = SettingsViewController()
+        let nav = UINavigationController(rootViewController: vc)
+        present(nav, animated: true)
+    }
+    
+    @objc private func windowsTapped() {
+        flashMessage("Multi-window")
     }
     
     private func animateReload(fromRight: Bool) {
@@ -318,17 +349,13 @@ class FileListViewController: UITableViewController {
         }
     }
     
-    // MARK: - 文件类型判断与打开
-    
     private func isTextFile(_ item: FileItem) -> Bool {
         let ext = item.url.pathExtension.lowercased()
         let textExts: Set<String> = ["txt", "text", "md", "json", "xml", "html", "htm", "css", "js", "swift", "m", "h", "c", "cpp", "py", "sh", "log", "plist", "yaml", "yml", "ini", "conf", "cfg"]
         if textExts.contains(ext) { return true }
         
-        // 无后缀时检测内容
         if ext.isEmpty {
             guard let data = try? Data(contentsOf: item.url, options: .mappedIfSafe) else { return false }
-            // 前 4KB 里如果大部分是可打印字符，就当文本
             let sample = data.prefix(4096)
             if sample.isEmpty { return true }
             let printable = sample.filter { $0 >= 32 && $0 < 127 || $0 == 9 || $0 == 10 || $0 == 13 }.count
@@ -342,7 +369,6 @@ class FileListViewController: UITableViewController {
             let editor = TextEditorViewController(url: item.url)
             navigationController?.pushViewController(editor, animated: true)
         } else {
-            // 非文本暂时只显示属性
             showInfo(item)
         }
     }
@@ -380,14 +406,80 @@ class FileListViewController: UITableViewController {
     
     private func showInfo(_ item: FileItem) {
         let msg = """
-        名称: \(item.name)
-        大小: \(item.displaySize)
-        日期: \(item.displayDate)
-        路径: \(item.url.path)
+        Name: \(item.name)
+        Size: \(item.displaySize)
+        Date: \(item.displayDate)
+        Path: \(item.url.path)
         """
-        let a = UIAlertController(title: "属性", message: msg, preferredStyle: .alert)
-        a.addAction(UIAlertAction(title: "确定", style: .default))
+        let a = UIAlertController(title: "Info", message: msg, preferredStyle: .alert)
+        a.addAction(UIAlertAction(title: "OK", style: .default))
         present(a, animated: true)
+    }
+}
+
+// 简单列表（收藏夹 / 最近）
+class SimpleListViewController: UITableViewController {
+    private let items: [String]
+    init(title: String, items: [String]) {
+        self.items = items
+        super.init(style: .insetGrouped)
+        self.title = title
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        navigationItem.leftBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Done", comment: ""), style: .done, target: self, action: #selector(close))
+    }
+    
+    @objc private func close() { dismiss(animated: true) }
+    
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { items.count }
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        cell.textLabel?.text = items[indexPath.row]
+        cell.imageView?.image = UIImage(systemName: "star")
+        return cell
+    }
+}
+
+// 设置页（对照视频里的设置）
+class SettingsViewController: UITableViewController {
+    init() { super.init(style: .insetGrouped) }
+    required init?(coder: NSCoder) { fatalError() }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = NSLocalizedString("Settings", comment: "")
+        navigationItem.leftBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Done", comment: ""), style: .done, target: self, action: #selector(close))
+    }
+    
+    @objc private func close() { dismiss(animated: true) }
+    
+    override func numberOfSections(in tableView: UITableView) -> Int { 3 }
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        [4, 4, 2][section]
+    }
+    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        ["General", "WebDAV", "About"][section]
+    }
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
+        switch (indexPath.section, indexPath.row) {
+        case (0, 0): cell.textLabel?.text = "Scroll Speed"; cell.detailTextLabel?.text = "Fast"
+        case (0, 1): cell.textLabel?.text = "Show Hidden"; cell.detailTextLabel?.text = "Show"
+        case (0, 2): cell.textLabel?.text = "Trash"
+        case (0, 3): cell.textLabel?.text = "Advanced"
+        case (1, 0): cell.textLabel?.text = "Port"; cell.detailTextLabel?.text = "10000"
+        case (1, 1): cell.textLabel?.text = "Bonjour"; cell.detailTextLabel?.text = "Yes"
+        case (1, 2): cell.textLabel?.text = "Auth"
+        case (1, 3): cell.textLabel?.text = "Enable WebDAV"; cell.accessoryType = .disclosureIndicator
+        case (2, 0): cell.textLabel?.text = "Activation"; cell.detailTextLabel?.text = "Full"
+        case (2, 1): cell.textLabel?.text = "About"
+        default: break
+        }
+        cell.accessoryType = .disclosureIndicator
+        return cell
     }
 }
 
