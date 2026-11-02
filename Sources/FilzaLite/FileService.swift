@@ -5,7 +5,6 @@ class FileService {
     
     private let fileManager = FileManager.default
     
-    /// 获取沙盒 Documents 目录（非越狱环境安全起点）
     var documentsURL: URL {
         fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
@@ -23,8 +22,6 @@ class FileService {
                 let isDir = values?.isDirectory ?? false
                 let size = Int64(values?.fileSize ?? 0)
                 let date = values?.contentModificationDate
-                
-                // 简单权限字符串（真实场景可扩展）
                 let perms = isDir ? "drwxr-xr-x" : "-rw-r--r--"
                 
                 return FileItem(
@@ -47,6 +44,12 @@ class FileService {
         try fileManager.createDirectory(at: newURL, withIntermediateDirectories: false)
     }
     
+    func createEmptyFile(named name: String, in parent: URL) throws {
+        let newURL = parent.appendingPathComponent(name)
+        let data = Data()
+        try data.write(to: newURL)
+    }
+    
     func delete(item: FileItem) throws {
         try fileManager.removeItem(at: item.url)
     }
@@ -54,5 +57,10 @@ class FileService {
     func rename(item: FileItem, to newName: String) throws {
         let newURL = item.url.deletingLastPathComponent().appendingPathComponent(newName)
         try fileManager.moveItem(at: item.url, to: newURL)
+    }
+    
+    func copy(item: FileItem, to destination: URL) throws {
+        let dest = destination.appendingPathComponent(item.name)
+        try fileManager.copyItem(at: item.url, to: dest)
     }
 }
