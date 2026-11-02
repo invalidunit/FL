@@ -1,9 +1,10 @@
 import UIKit
 
-class FileListViewController: UITableViewController {
+class FileListViewController: UITableViewController, UISearchResultsUpdating {
     var currentURL: URL
     var parentName: String = ""
     var items: [FileItem] = []
+    var filteredItems: [FileItem] = []
     var onNavigate: ((URL) -> Void)?
     var onGoBack: (() -> Void)?
     
@@ -13,6 +14,13 @@ class FileListViewController: UITableViewController {
     
     private var clipboard: [FileItem] = []
     private var clipboardMode: ClipboardMode = .none
+    
+    private let selectedCountLabel = UILabel()
+    private let searchController = UISearchController(searchResultsController: nil)
+    private var isSearching: Bool { searchController.isActive && !(searchController.searchBar.text?.isEmpty ?? true) }
+    
+    // 多窗口
+    static var windows: [URL] = []
     
     enum SortMode { case name, date, size }
     enum ClipboardMode { case none, copy, move }
@@ -31,9 +39,16 @@ class FileListViewController: UITableViewController {
         tableView.allowsMultipleSelectionDuringEditing = true
         
         setupNavigation()
+        setupSearch()
         setupSortHeader()
         setupBottomBar(editing: false)
+        setupSelectedCount()
         loadItems()
+        
+        // 记录窗口
+        if !FileListViewController.windows.contains(currentURL) {
+            FileListViewController.windows.append(currentURL)
+        }
     }
     
     private func setupNavigation() {
@@ -48,6 +63,20 @@ class FileListViewController: UITableViewController {
         title = currentURL.lastPathComponent
     }
     
+    private func setupSearch() {
+        searchController.searchResultsUpdater = self
+        searchController.obscuresBackgroundDuringPresentation = false
+        searchController.searchBar.placeholder = "Search"
+        navigationItem.searchController = searchController
+        definesPresentationContext = true
+    }
+    
+    func updateSearchResults(for searchController: UISearchController) {
+        let text = searchController.searchBar.text?.lowercased() ?? ""
+        filteredItems = items.filter { $0.name.lowercased().contains(text) }
+        tableView.reloadData()
+    }
+    
     private func setupSortHeader() {
         let header = UIView(frame: CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 40))
         header.backgroundColor = .systemGroupedBackground
@@ -55,6 +84,7 @@ class FileListViewController: UITableViewController {
         let search = UIButton(type: .system)
         search.setImage(UIImage(systemName: "magnifyingglass"), for: .normal)
         search.frame = CGRect(x: 10, y: 8, width: 28, height: 24)
+        search.addTarget(self, action: #selector(focusSearch), for: .touchUpInside)
         
         let name = makeSortButton(NSLocalizedString("Name", comment: ""), tag: 0)
         name.frame = CGRect(x: 50, y: 6, width: 70, height: 28)
@@ -77,6 +107,11 @@ class FileListViewController: UITableViewController {
         
         tableView.tableHeaderView = header
         updateSortButtons()
+    }
+    
+    @objc private func focusSearch() {
+        searchController.isActive = true
+        searchController.searchBar.becomeFirstResponder()
     }
     
     private func makeSortButton(_ title: String, tag: Int) -> UIButton {
@@ -104,6 +139,33 @@ class FileListViewController: UITableViewController {
         }
     }
     
+    private func setupSelectedCount() {
+        selectedCountLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        selectedCountLabel.textColor = .white
+        selectedCountLabel.backgroundColor = .systemGray
+        selectedCountLabel.textAlignment = .center
+        selectedCountLabel.layer.cornerRadius = 10
+        selectedCountLabel.clipsToBounds = true
+        selectedCountLabel.isHidden = true
+        selectedCountLabel.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(selectedCountLabel)
+        NSLayoutConstraint.activate([
+            selectedCountLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            selectedCountLabel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
+            selectedCountLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
+            selectedCountLabel.heightAnchor.constraint(equalToConstant: 22)
+        ])
+    }
+    
+    private func updateSelectedCount() {
+        if isEditingMode && !selected.isEmpty {
+            selectedCountLabel.text = " \(selected.count) "
+            selectedCountLabel.isHidden = false
+        } else {
+            selectedCountLabel.isHidden = true
+        }
+    }
+    
     private func setupBottomBar(editing: Bool) {
         let flex = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
         if editing {
@@ -122,7 +184,6 @@ class FileListViewController: UITableViewController {
             toolbarItems = [clip, flex, clock, flex, star, flex, gear, flex, win]
         }
         navigationController?.isToolbarHidden = false
-        // 底部栏背景
         navigationController?.toolbar.barTintColor = .secondarySystemBackground
         navigationController?.toolbar.isTranslucent = false
     }
@@ -150,7 +211,8 @@ class FileListViewController: UITableViewController {
     
     private func updateFooter() {
         let label = UILabel()
-        label.text = "/dev/disk1s8   --   \(items.count) item(s)."
+        let countText = items.isEmpty ? "Empty" : "\(items.count) item(s)."
+        label.text = "/dev/disk1s8   28.2 GB   \(countText)"
         label.font = .systemFont(ofSize: 12)
         label.textColor = .secondaryLabel
         label.textAlignment = .center
@@ -177,6 +239,7 @@ class FileListViewController: UITableViewController {
             selected.removeAll()
         }
         setupBottomBar(editing: isEditingMode)
+        updateSelectedCount()
     }
     
     @objc private func sortTapped(_ sender: UIButton) {
@@ -216,7 +279,6 @@ class FileListViewController: UITableViewController {
         present(sheet, animated: true)
     }
     
-    // Filza 风格输入框：Cancel / 输入框 / Done
     private func promptNewFolder() {
         let a = UIAlertController(title: nil, message: nil, preferredStyle: .alert)
         a.addTextField { $0.placeholder = "Untitled Folder" }
@@ -295,12 +357,14 @@ class FileListViewController: UITableViewController {
         }
         selected.removeAll()
         animateReload(fromRight: false)
+        updateSelectedCount()
     }
     
-    // 底部栏功能（视频里的收藏夹 / 最近 / 设置）
     @objc private func favoritesTapped() {
         let vc = SimpleListViewController(title: NSLocalizedString("Favorites", comment: ""), items: [
-            "[jbroot]", "[rootfs]", "/rootfs/var", "Documents", "Applications", "CrashReporter"
+            "[jbroot]", "[rootfs]", "/rootfs/var", "Documents", "Applications", "CrashReporter",
+            "Scripts", "Mount Points", "Trash", "Music", "App Manager",
+            "mobile", "zhaonan", "Home"
         ])
         let nav = UINavigationController(rootViewController: vc)
         present(nav, animated: true)
@@ -308,7 +372,8 @@ class FileListViewController: UITableViewController {
     
     @objc private func recentsTapped() {
         let vc = SimpleListViewController(title: NSLocalizedString("Recents", comment: ""), items: [
-            "Filza1", "Filza.entitlements", "build.yml", "Packages", "control"
+            "Filza1", "Filza.entitlements", "build.yml", "Packages", "control",
+            "com.nan.bindfs_0.7...iphoneos-arm64.deb", "Info.plist"
         ])
         let nav = UINavigationController(rootViewController: vc)
         present(nav, animated: true)
@@ -320,8 +385,15 @@ class FileListViewController: UITableViewController {
         present(nav, animated: true)
     }
     
+    // 多窗口真实实现
     @objc private func windowsTapped() {
-        flashMessage("Multi-window")
+        let vc = WindowsViewController(windows: FileListViewController.windows) { [weak self] url in
+            self?.dismiss(animated: true) {
+                self?.onNavigate?(url)
+            }
+        }
+        let nav = UINavigationController(rootViewController: vc)
+        present(nav, animated: true)
     }
     
     private func animateReload(fromRight: Bool) {
@@ -373,21 +445,43 @@ class FileListViewController: UITableViewController {
         }
     }
     
+    // 长按菜单
+    override func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
+        let item = isSearching ? filteredItems[indexPath.row] : items[indexPath.row]
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
+            let info = UIAction(title: "Info", image: UIImage(systemName: "info.circle")) { _ in
+                self.showInfo(item)
+            }
+            let rename = UIAction(title: "Rename", image: UIImage(systemName: "pencil")) { _ in
+                self.selected = [item]
+                self.renameTapped()
+            }
+            let trash = UIAction(title: "Move to Trash", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
+                try? FileService.shared.moveToTrash(item: item)
+                self.loadItems()
+            }
+            return UIMenu(title: "", children: [info, rename, trash])
+        }
+    }
+    
     // MARK: Table
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { items.count }
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        isSearching ? filteredItems.count : items.count
+    }
     
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "FileCell", for: indexPath) as! FileCell
-        let item = items[indexPath.row]
+        let item = isSearching ? filteredItems[indexPath.row] : items[indexPath.row]
         cell.configure(with: item)
         cell.onInfo = { [weak self] in self?.showInfo(item) }
         return cell
     }
     
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let item = items[indexPath.row]
+        let item = isSearching ? filteredItems[indexPath.row] : items[indexPath.row]
         if isEditingMode {
             selected.insert(item)
+            updateSelectedCount()
             return
         }
         tableView.deselectRow(at: indexPath, animated: true)
@@ -401,7 +495,11 @@ class FileListViewController: UITableViewController {
     }
     
     override func tableView(_ tableView: UITableView, didDeselectRowAt indexPath: IndexPath) {
-        if isEditingMode { selected.remove(items[indexPath.row]) }
+        if isEditingMode {
+            let item = isSearching ? filteredItems[indexPath.row] : items[indexPath.row]
+            selected.remove(item)
+            updateSelectedCount()
+        }
     }
     
     private func showInfo(_ item: FileItem) {
@@ -414,6 +512,40 @@ class FileListViewController: UITableViewController {
         let a = UIAlertController(title: "Info", message: msg, preferredStyle: .alert)
         a.addAction(UIAlertAction(title: "OK", style: .default))
         present(a, animated: true)
+    }
+}
+
+// 多窗口列表
+class WindowsViewController: UITableViewController {
+    private var windows: [URL]
+    var onSelect: ((URL) -> Void)?
+    
+    init(windows: [URL], onSelect: @escaping (URL) -> Void) {
+        self.windows = windows
+        self.onSelect = onSelect
+        super.init(style: .insetGrouped)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = "Windows"
+        navigationItem.leftBarButtonItem = UIBarButtonItem(title: "Done", style: .done, target: self, action: #selector(close))
+    }
+    
+    @objc private func close() { dismiss(animated: true) }
+    
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { windows.count }
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let url = windows[indexPath.row]
+        cell.textLabel?.text = url.lastPathComponent
+        cell.detailTextLabel?.text = url.path
+        cell.imageView?.image = UIImage(systemName: "folder")
+        return cell
+    }
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        onSelect?(windows[indexPath.row])
     }
 }
 
@@ -430,9 +562,11 @@ class SimpleListViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         navigationItem.leftBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Done", comment: ""), style: .done, target: self, action: #selector(close))
+        navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add, target: self, action: #selector(add))
     }
     
     @objc private func close() { dismiss(animated: true) }
+    @objc private func add() { }
     
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { items.count }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -443,7 +577,7 @@ class SimpleListViewController: UITableViewController {
     }
 }
 
-// 设置页（对照视频里的设置）
+// 设置页
 class SettingsViewController: UITableViewController {
     init() { super.init(style: .insetGrouped) }
     required init?(coder: NSCoder) { fatalError() }
@@ -456,12 +590,12 @@ class SettingsViewController: UITableViewController {
     
     @objc private func close() { dismiss(animated: true) }
     
-    override func numberOfSections(in tableView: UITableView) -> Int { 3 }
+    override func numberOfSections(in tableView: UITableView) -> Int { 4 }
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        [4, 4, 2][section]
+        [4, 4, 3, 2][section]
     }
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        ["General", "WebDAV", "About"][section]
+        ["General", "WebDAV", "Supported Viewers", "About"][section]
     }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
@@ -473,9 +607,12 @@ class SettingsViewController: UITableViewController {
         case (1, 0): cell.textLabel?.text = "Port"; cell.detailTextLabel?.text = "10000"
         case (1, 1): cell.textLabel?.text = "Bonjour"; cell.detailTextLabel?.text = "Yes"
         case (1, 2): cell.textLabel?.text = "Auth"
-        case (1, 3): cell.textLabel?.text = "Enable WebDAV"; cell.accessoryType = .disclosureIndicator
-        case (2, 0): cell.textLabel?.text = "Activation"; cell.detailTextLabel?.text = "Full"
-        case (2, 1): cell.textLabel?.text = "About"
+        case (1, 3): cell.textLabel?.text = "Enable WebDAV"
+        case (2, 0): cell.textLabel?.text = "File Association"
+        case (2, 1): cell.textLabel?.text = "Supported Viewers"
+        case (2, 2): cell.textLabel?.text = "External Viewers"
+        case (3, 0): cell.textLabel?.text = "Activation"; cell.detailTextLabel?.text = "Full"
+        case (3, 1): cell.textLabel?.text = "About"
         default: break
         }
         cell.accessoryType = .disclosureIndicator
@@ -483,7 +620,7 @@ class SettingsViewController: UITableViewController {
     }
 }
 
-// 更接近 Filza 的单元格：图标 + 名称 + 日期 + 大小 + ⓘ + 箭头
+// 文件类型图标
 class FileCell: UITableViewCell {
     private let icon = UIImageView()
     private let nameLabel = UILabel()
@@ -555,10 +692,28 @@ class FileCell: UITableViewCell {
         dateLabel.text = item.displayDate
         sizeLabel.text = item.isDirectory ? "" : item.displaySize
         
+        let (symbol, color) = iconFor(item)
         let cfg = UIImage.SymbolConfiguration(pointSize: 22)
-        icon.image = UIImage(systemName: item.isDirectory ? "folder.fill" : "doc.fill", withConfiguration: cfg)
-        icon.tintColor = item.isDirectory ? .systemBlue : .systemGray
+        icon.image = UIImage(systemName: symbol, withConfiguration: cfg)
+        icon.tintColor = color
         chevron.isHidden = !item.isDirectory
+    }
+    
+    private func iconFor(_ item: FileItem) -> (String, UIColor) {
+        if item.isDirectory { return ("folder.fill", .systemBlue) }
+        let ext = item.url.pathExtension.lowercased()
+        switch ext {
+        case "deb": return ("shippingbox.fill", .systemOrange)
+        case "ipa": return ("app.fill", .systemBlue)
+        case "mp3", "m4a", "wav": return ("music.note", .systemPurple)
+        case "png", "jpg", "jpeg", "gif", "heic": return ("photo", .systemGreen)
+        case "pdf": return ("doc.richtext", .systemRed)
+        case "zip", "tar", "gz", "7z": return ("doc.zipper", .systemBrown)
+        case "txt", "md", "log": return ("doc.text", .systemGray)
+        case "json", "xml", "plist", "yml", "yaml": return ("doc.text.fill", .systemTeal)
+        case "swift", "m", "h", "c", "cpp", "py", "js": return ("chevron.left.forwardslash.chevron.right", .systemIndigo)
+        default: return ("doc.fill", .systemGray)
+        }
     }
     
     @objc private func infoTap() { onInfo?() }
