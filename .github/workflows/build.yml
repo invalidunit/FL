@@ -47,12 +47,9 @@ jobs:
       - name: Package IPA
         run: |
           mkdir -p Payload
-          cp -R build/FilzaLite.xcarchive/Products/Applications/Filza\ Lite.app Payload/
-          # 也尝试常见命名
-          if [ ! -d "Payload/Filza Lite.app" ] && [ -d "build/FilzaLite.xcarchive/Products/Applications/" ]; then
-            APP=$(find build/FilzaLite.xcarchive/Products/Applications -name "*.app" | head -1)
-            cp -R "$APP" Payload/
-          fi
+          APP=$(find build/FilzaLite.xcarchive/Products/Applications -name "*.app" | head -1)
+          echo "Found app: $APP"
+          cp -R "$APP" Payload/
           zip -r FilzaLite.ipa Payload
           ls -lh FilzaLite.ipa
 
