@@ -7,20 +7,25 @@ struct FileListRepresentable: UIViewControllerRepresentable {
     var onNavigate: (URL) -> Void
     var onGoBack: () -> Void
     
-    func makeUIViewController(context: Context) -> FileListViewController {
+    func makeUIViewController(context: Context) -> UINavigationController {
         let vc = FileListViewController(url: url)
         vc.parentName = parentName
         vc.onNavigate = onNavigate
         vc.onGoBack = onGoBack
-        return vc
+        
+        let nav = UINavigationController(rootViewController: vc)
+        nav.navigationBar.prefersLargeTitles = false
+        nav.isToolbarHidden = false
+        return nav
     }
     
-    func updateUIViewController(_ uiViewController: FileListViewController, context: Context) {
-        uiViewController.parentName = parentName
-        if uiViewController.currentURL != url {
-            uiViewController.currentURL = url
-            uiViewController.loadItems()
+    func updateUIViewController(_ nav: UINavigationController, context: Context) {
+        guard let vc = nav.topViewController as? FileListViewController else { return }
+        vc.parentName = parentName
+        if vc.currentURL != url {
+            vc.currentURL = url
+            vc.loadItems()
         }
-        uiViewController.updateNavigation()
+        vc.updateNavigation()
     }
 }
