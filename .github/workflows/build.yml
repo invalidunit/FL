@@ -12,7 +12,18 @@ jobs:
     runs-on: macos-14
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+
+      - name: Select Xcode
+        run: |
+          if [ -d "/Applications/Xcode_16.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.app
+          elif [ -d "/Applications/Xcode_15.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_15.app
+          else
+            sudo xcode-select -s /Applications/Xcode.app
+          fi
+          xcodebuild -version
 
       - name: Install XcodeGen
         run: brew install xcodegen || true
@@ -20,12 +31,35 @@ jobs:
       - name: Generate Xcode Project
         run: xcodegen generate
 
-      - name: Build for Simulator
+      - name: Build for Device
         run: |
           xcodebuild \
             -project FilzaLite.xcodeproj \
             -scheme FilzaLite \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
-            -configuration Debug \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath $PWD/build/FilzaLite.xcarchive \
             CODE_SIGNING_ALLOWED=NO \
-            build
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            archive
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/FilzaLite.xcarchive/Products/Applications/Filza\ Lite.app Payload/
+          # 也尝试常见命名
+          if [ ! -d "Payload/Filza Lite.app" ] && [ -d "build/FilzaLite.xcarchive/Products/Applications/" ]; then
+            APP=$(find build/FilzaLite.xcarchive/Products/Applications -name "*.app" | head -1)
+            cp -R "$APP" Payload/
+          fi
+          zip -r FilzaLite.ipa Payload
+          ls -lh FilzaLite.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: FilzaLite-IPA
+          path: FilzaLite.ipa
+          retention-days: 30
+          if-no-files-found: error
