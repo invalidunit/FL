@@ -5,7 +5,8 @@ class FileService {
     
     private let fileManager = FileManager.default
     
-    private var sandboxRoot: URL {
+    /// App 容器根（Documents 的父目录）
+    var containerRoot: URL {
         documentsURL.deletingLastPathComponent()
     }
     
@@ -13,41 +14,38 @@ class FileService {
         fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
     
+    /// 与 Documents 同级的 Trash
     var trashURL: URL {
-        sandboxRoot.appendingPathComponent("Trash")
+        containerRoot.appendingPathComponent("Trash")
     }
     
-    /// App Group 容器
     var groupURL: URL? {
         fileManager.containerURL(forSecurityApplicationGroupIdentifier: "group.com.nan.filzalite")
     }
     
     init() {
-        ensureTrash()
+        createTrashIfNeeded()
         if let g = groupURL {
             try? fileManager.createDirectory(at: g, withIntermediateDirectories: true)
         }
     }
     
-    /// 确保 Trash 目录存在（多次尝试）
-    func ensureTrash() {
+    func createTrashIfNeeded() {
         if !fileManager.fileExists(atPath: trashURL.path) {
-            try? fileManager.createDirectory(at: trashURL, withIntermediateDirectories: true, attributes: nil)
-        }
-        // 再确认一次
-        if !fileManager.fileExists(atPath: trashURL.path) {
-            // 兜底：如果沙盒根不可写，就放在 Documents 里（极少情况）
-            let fallback = documentsURL.appendingPathComponent(".Trash")
-            try? fileManager.createDirectory(at: fallback, withIntermediateDirectories: true)
+            do {
+                try fileManager.createDirectory(at: trashURL, withIntermediateDirectories: true)
+            } catch {
+                print("Failed to create Trash: \(error)")
+            }
         }
     }
     
     func isAllowed(_ url: URL) -> Bool {
-        let docs = documentsURL.standardizedFileURL.path
         let target = url.standardizedFileURL.path
-        if target == docs || target.hasPrefix(docs + "/") { return true }
-        
+        let docs = documentsURL.standardizedFileURL.path
         let trash = trashURL.standardizedFileURL.path
+        
+        if target == docs || target.hasPrefix(docs + "/") { return true }
         if target == trash || target.hasPrefix(trash + "/") { return true }
         
         if let g = groupURL {
@@ -58,9 +56,7 @@ class FileService {
     }
     
     func contents(of url: URL) -> [FileItem] {
-        if url.standardizedFileURL == trashURL.standardizedFileURL {
-            ensureTrash()
-        }
+        createTrashIfNeeded()
         guard isAllowed(url) else { return [] }
         do {
             let urls = try fileManager.contentsOfDirectory(
@@ -90,21 +86,21 @@ class FileService {
     }
     
     func createFolder(named name: String, in parent: URL) throws {
-        if parent.standardizedFileURL == trashURL.standardizedFileURL { ensureTrash() }
+        createTrashIfNeeded()
         guard isAllowed(parent) else { return }
         let newURL = parent.appendingPathComponent(name)
         try fileManager.createDirectory(at: newURL, withIntermediateDirectories: false)
     }
     
     func createEmptyFile(named name: String, in parent: URL) throws {
-        if parent.standardizedFileURL == trashURL.standardizedFileURL { ensureTrash() }
+        createTrashIfNeeded()
         guard isAllowed(parent) else { return }
         let newURL = parent.appendingPathComponent(name)
         try Data().write(to: newURL)
     }
     
     func moveToTrash(item: FileItem) throws {
-        ensureTrash()
+        createTrashIfNeeded()
         let dest = trashURL.appendingPathComponent(item.name)
         let finalDest = uniqueURL(dest)
         try fileManager.moveItem(at: item.url, to: finalDest)
