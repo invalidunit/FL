@@ -56,13 +56,11 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         setupSelectedCount()
         loadItems()
         
-        // 下拉刷新
         let refresh = UIRefreshControl()
         refresh.addTarget(self, action: #selector(refreshPulled), for: .valueChanged)
         tableView.refreshControl = refresh
         
         recordHistory(currentURL)
-        // 不再在这里自动 append，避免每次导航都新增标签
         if FileListViewController.tabs.isEmpty {
             FileListViewController.tabs.append(currentURL)
         }
@@ -100,16 +98,6 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
             title = currentURL.lastPathComponent
         }
         navigationItem.rightBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Edit", comment: ""), style: .plain, target: self, action: #selector(toggleEdit))
-        
-        // 临时调试：进入 Trash 时显示真实路径
-        if currentURL.standardizedFileURL == FileService.shared.trashURL.standardizedFileURL {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                let msg = "Trash path:\n\(self.currentURL.path)\nAllowed: \(FileService.shared.isAllowed(self.currentURL))"
-                let a = UIAlertController(title: "Debug", message: msg, preferredStyle: .alert)
-                a.addAction(UIAlertAction(title: "OK", style: .default))
-                self.present(a, animated: true)
-            }
-        }
     }
     
     private func makeBackButton(title: String) -> UIBarButtonItem {
@@ -123,14 +111,12 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         return UIBarButtonItem(customView: btn)
     }
     
-    func updateNavigation() {
-        setupNavigation()
-    }
+    func updateNavigation() { setupNavigation() }
     
     private func setupSearch() {
         searchController.searchResultsUpdater = self
         searchController.obscuresBackgroundDuringPresentation = false
-        searchController.searchBar.placeholder = "Search"
+        searchController.searchBar.placeholder = NSLocalizedString("Search", comment: "")
         navigationItem.searchController = searchController
         definesPresentationContext = true
     }
@@ -159,15 +145,10 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         let size = makeSortButton(NSLocalizedString("Size", comment: ""), tag: 2)
         size.frame = CGRect(x: 200, y: 6, width: 60, height: 28)
         
-        let toggle = UIButton(type: .system)
-        toggle.setImage(UIImage(systemName: "list.bullet"), for: .normal)
-        toggle.frame = CGRect(x: header.bounds.width - 44, y: 6, width: 32, height: 28)
-        
         header.addSubview(search)
         header.addSubview(name)
         header.addSubview(date)
         header.addSubview(size)
-        header.addSubview(toggle)
         
         tableView.tableHeaderView = header
         updateSortButtons()
@@ -195,8 +176,6 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
             b.setTitleColor(active ? .systemBlue : .label, for: .normal)
             if active {
                 b.setImage(UIImage(systemName: "chevron.up"), for: .normal)
-                b.semanticContentAttribute = .forceLeftToRight
-                b.imageEdgeInsets = UIEdgeInsets(top: 0, left: -4, bottom: 0, right: 0)
             } else {
                 b.setImage(nil, for: .normal)
             }
@@ -253,9 +232,17 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     }
     
     private func makeToolbarItem(title: String, image: String, action: Selector) -> UIBarButtonItem {
-        let item = UIBarButtonItem(image: UIImage(systemName: image), style: .plain, target: self, action: action)
-        item.title = title
-        return item
+        let btn = UIButton(type: .system)
+        let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
+        btn.setImage(UIImage(systemName: image, withConfiguration: config), for: .normal)
+        btn.setTitle(title, for: .normal)
+        btn.titleLabel?.font = .systemFont(ofSize: 9)
+        btn.tintColor = .systemBlue
+        btn.setTitleColor(.systemBlue, for: .normal)
+        btn.alignVertical(spacing: 1)
+        btn.addTarget(self, action: action, for: .touchUpInside)
+        btn.frame = CGRect(x: 0, y: 0, width: 50, height: 44)
+        return UIBarButtonItem(customView: btn)
     }
     
     func loadItems() {
@@ -309,10 +296,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     
     @objc private func goBack() {
         if isRoot { return }
-        let parent = currentURL.deletingLastPathComponent()
-        if FileService.shared.isAllowed(parent) {
-            onGoBack?()
-        }
+        onGoBack?()
     }
     
     @objc private func toggleEdit() {
@@ -369,12 +353,8 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         let newFolder = UIAlertAction(title: NSLocalizedString("New Folder", comment: ""), style: .default) { _ in self.promptNewFolder() }
         newFolder.setValue(UIImage(systemName: "folder.badge.plus"), forKey: "image")
         
-        let link = UIAlertAction(title: NSLocalizedString("Shortcut", comment: ""), style: .default) { _ in }
-        link.setValue(UIImage(systemName: "link.badge.plus"), forKey: "image")
-        
         sheet.addAction(newText)
         sheet.addAction(newFolder)
-        sheet.addAction(link)
         sheet.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
         
         if let p = sheet.popoverPresentationController {
@@ -386,7 +366,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     private func promptNewFolder() {
         let a = UIAlertController(title: nil, message: nil, preferredStyle: .alert)
         a.addTextField { $0.placeholder = "Untitled Folder" }
-        a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        a.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
         a.addAction(UIAlertAction(title: "Done", style: .default) { _ in
             if let name = a.textFields?.first?.text?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
                 do {
@@ -403,7 +383,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     private func promptNewFile() {
         let a = UIAlertController(title: nil, message: nil, preferredStyle: .alert)
         a.addTextField { $0.placeholder = "Untitled.txt" }
-        a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        a.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
         a.addAction(UIAlertAction(title: "Done", style: .default) { _ in
             if let name = a.textFields?.first?.text?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
                 do {
@@ -420,13 +400,13 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     @objc private func copyTapped() {
         clipboard = Array(selected)
         clipboardMode = .copy
-        flashMessage("Copied \(clipboard.count) item(s)")
+        flashMessage("已复制 \(clipboard.count) 项")
     }
     
     @objc private func moveTapped() {
         clipboard = Array(selected)
         clipboardMode = .move
-        flashMessage("Cut \(clipboard.count) item(s)")
+        flashMessage("已剪切 \(clipboard.count) 项")
     }
     
     @objc private func pasteTapped() {
@@ -442,7 +422,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
                 clipboard.removeAll()
                 clipboardMode = .none
             }
-            animateReload(fromRight: true)
+            animateReload()
             return
         }
         
@@ -451,15 +431,15 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
            url.scheme == "http" || url.scheme == "https" {
             confirmDownload(url)
         } else {
-            flashMessage("Nothing to paste")
+            flashMessage(NSLocalizedString("Nothing to paste", comment: ""))
         }
     }
     
     private func confirmDownload(_ url: URL) {
         let name = url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent
-        let a = UIAlertController(title: "Download", message: "File: \(name)\nFrom: \(url.host ?? "")", preferredStyle: .alert)
-        a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        a.addAction(UIAlertAction(title: "Download", style: .default) { _ in
+        let a = UIAlertController(title: NSLocalizedString("Download", comment: ""), message: "File: \(name)", preferredStyle: .alert)
+        a.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
+        a.addAction(UIAlertAction(title: NSLocalizedString("Download", comment: ""), style: .default) { _ in
             self.downloadFromURL(url, name: name)
         })
         present(a, animated: true)
@@ -467,8 +447,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     
     private func downloadFromURL(_ url: URL, name: String) {
         let dest = currentURL.appendingPathComponent(name)
-        
-        let alert = UIAlertController(title: "Downloading", message: name, preferredStyle: .alert)
+        let alert = UIAlertController(title: NSLocalizedString("Downloading", comment: ""), message: name, preferredStyle: .alert)
         present(alert, animated: true)
         
         URLSession.shared.downloadTask(with: url) { tempURL, _, error in
@@ -477,9 +456,9 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
                 if let tempURL = tempURL, error == nil {
                     try? FileManager.default.moveItem(at: tempURL, to: dest)
                     self.loadItems()
-                    self.flashMessage("Downloaded")
+                    self.flashMessage(NSLocalizedString("Downloaded", comment: ""))
                 } else {
-                    self.flashMessage("Download failed")
+                    self.flashMessage(NSLocalizedString("Download failed", comment: ""))
                 }
             }
         }.resume()
@@ -487,17 +466,17 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     
     @objc private func renameTapped() {
         guard selected.count == 1, let item = selected.first else {
-            flashMessage("Select only one item to rename")
+            flashMessage("请只选择一项")
             return
         }
         let a = UIAlertController(title: nil, message: nil, preferredStyle: .alert)
         a.addTextField { $0.text = item.name }
-        a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        a.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
         a.addAction(UIAlertAction(title: "Done", style: .default) { _ in
             if let name = a.textFields?.first?.text?.trimmingCharacters(in: .whitespaces), !name.isEmpty, name != item.name {
                 try? FileService.shared.rename(item: item, to: name)
                 self.selected.removeAll()
-                self.animateReload(fromRight: false)
+                self.animateReload()
             }
         })
         present(a, animated: true)
@@ -517,12 +496,12 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
             }
         }
         selected.removeAll()
-        animateReload(fromRight: false)
+        animateReload()
         updateSelectedCount()
     }
     
     @objc private func historyTapped() {
-        let vc = PathListViewController(title: "History", paths: FileListViewController.history) { [weak self] url in
+        let vc = PathListViewController(title: NSLocalizedString("History", comment: ""), paths: FileListViewController.history) { [weak self] url in
             self?.dismiss(animated: true) {
                 self?.onNavigate?(url)
             }
@@ -566,9 +545,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
             let relative = UserDefaults.standard.string(forKey: "defaultNewTabRelativePath") ?? ""
             var target = FileService.shared.documentsURL
             if relative == "[App Group]" || relative.lowercased() == "appgroup" {
-                if let g = FileService.shared.groupURL {
-                    target = g
-                }
+                if let g = FileService.shared.groupURL { target = g }
             } else if !relative.isEmpty {
                 let candidate = FileService.shared.documentsURL.appendingPathComponent(relative)
                 var isDir: ObjCBool = false
@@ -584,41 +561,18 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         present(nav, animated: true)
     }
     
-    override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        let item = isSearching ? filteredItems[indexPath.row] : items[indexPath.row]
-        let delete = UIContextualAction(style: .destructive, title: NSLocalizedString("Trash", comment: "")) { [weak self] _, _, completion in
-            guard let self = self else { completion(false); return }
-            let inTrash = self.currentURL.standardizedFileURL.path.hasPrefix(FileService.shared.trashURL.standardizedFileURL.path)
-            do {
-                if inTrash {
-                    try FileService.shared.deletePermanently(item: item)
-                } else {
-                    try FileService.shared.moveToTrash(item: item)
-                }
-                if let cell = tableView.cellForRow(at: indexPath) {
-                    UIView.animate(withDuration: 0.25, animations: {
-                        cell.alpha = 0
-                        cell.transform = CGAffineTransform(translationX: -30, y: 0)
-                    }) { _ in
-                        self.loadItems()
-                    }
-                } else {
-                    self.loadItems()
-                }
-                completion(true)
-            } catch {
-                self.logError("Delete failed: \(error.localizedDescription)")
-                completion(false)
-            }
-        }
-        delete.image = UIImage(systemName: "trash")
-        return UISwipeActionsConfiguration(actions: [delete])
-    }
-    
-    private func animateReload(fromRight: Bool) {
+    private func animateReload() {
         UIView.transition(with: tableView, duration: 0.25, options: .transitionCrossDissolve, animations: {
             self.loadItems()
         })
+    }
+    
+    private func flashMessage(_ text: String) {
+        let alert = UIAlertController(title: nil, message: text, preferredStyle: .alert)
+        present(alert, animated: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            alert.dismiss(animated: true)
+        }
     }
     
     private func logError(_ message: String) {
@@ -637,19 +591,10 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         }
     }
     
-    private func flashMessage(_ text: String) {
-        let alert = UIAlertController(title: nil, message: text, preferredStyle: .alert)
-        present(alert, animated: true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            alert.dismiss(animated: true)
-        }
-    }
-    
     private func isTextFile(_ item: FileItem) -> Bool {
         let ext = item.url.pathExtension.lowercased()
         let textExts: Set<String> = ["txt", "text", "md", "json", "xml", "html", "htm", "css", "js", "swift", "m", "h", "c", "cpp", "py", "sh", "log", "plist", "yaml", "yml", "ini", "conf", "cfg"]
         if textExts.contains(ext) { return true }
-        
         if ext.isEmpty {
             guard let data = try? Data(contentsOf: item.url, options: .mappedIfSafe) else { return false }
             let sample = data.prefix(4096)
@@ -669,17 +614,39 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         }
     }
     
+    override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        let item = isSearching ? filteredItems[indexPath.row] : items[indexPath.row]
+        let delete = UIContextualAction(style: .destructive, title: NSLocalizedString("Trash", comment: "")) { [weak self] _, _, completion in
+            guard let self = self else { completion(false); return }
+            let inTrash = self.currentURL.standardizedFileURL.path.hasPrefix(FileService.shared.trashURL.standardizedFileURL.path)
+            do {
+                if inTrash {
+                    try FileService.shared.deletePermanently(item: item)
+                } else {
+                    try FileService.shared.moveToTrash(item: item)
+                }
+                self.loadItems()
+                completion(true)
+            } catch {
+                self.logError("Delete failed: \(error.localizedDescription)")
+                completion(false)
+            }
+        }
+        delete.image = UIImage(systemName: "trash")
+        return UISwipeActionsConfiguration(actions: [delete])
+    }
+    
     override func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
         let item = isSearching ? filteredItems[indexPath.row] : items[indexPath.row]
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
-            let info = UIAction(title: "Info", image: UIImage(systemName: "info.circle")) { _ in
+            let info = UIAction(title: NSLocalizedString("Info", comment: ""), image: UIImage(systemName: "info.circle")) { _ in
                 self.showInfo(item)
             }
-            let rename = UIAction(title: "Rename", image: UIImage(systemName: "pencil")) { _ in
+            let rename = UIAction(title: NSLocalizedString("Rename", comment: ""), image: UIImage(systemName: "pencil")) { _ in
                 self.selected = [item]
                 self.renameTapped()
             }
-            let trash = UIAction(title: "Move to Trash", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
+            let trash = UIAction(title: NSLocalizedString("Trash", comment: ""), image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
                 try? FileService.shared.moveToTrash(item: item)
                 self.loadItems()
             }
@@ -732,7 +699,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         Date: \(item.displayDate)
         Path: \(item.url.path)
         """
-        let a = UIAlertController(title: "Info", message: msg, preferredStyle: .alert)
+        let a = UIAlertController(title: NSLocalizedString("Info", comment: ""), message: msg, preferredStyle: .alert)
         a.addAction(UIAlertAction(title: "OK", style: .default))
         present(a, animated: true)
     }
@@ -784,13 +751,7 @@ class FavoritesViewController: UITableViewController {
         alert.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
         alert.addAction(UIAlertAction(title: NSLocalizedString("Add", comment: ""), style: .default) { _ in
             let input = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let url: URL
-            if input.isEmpty {
-                url = self.currentURL
-            } else {
-                // 只允许相对 Documents 的路径
-                url = FileService.shared.documentsURL.appendingPathComponent(input)
-            }
+            let url = input.isEmpty ? self.currentURL : FileService.shared.documentsURL.appendingPathComponent(input)
             if FileListViewController.favorites.contains(url) {
                 self.flash(NSLocalizedString("Already in Favorites", comment: ""))
                 return
@@ -838,14 +799,11 @@ class FavoritesViewController: UITableViewController {
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         if indexPath.section == 0 {
             onSelect?(favorites[indexPath.row])
-        } else {
-            if let url = systemItems[indexPath.row].url {
-                onSelect?(url)
-            }
+        } else if let url = systemItems[indexPath.row].url {
+            onSelect?(url)
         }
     }
     
-    /// 把路径显示成以 Documents 为 / 的形式
     private func displayPath(for url: URL) -> String {
         let docs = FileService.shared.documentsURL.standardizedFileURL
         let target = url.standardizedFileURL
@@ -854,13 +812,6 @@ class FavoritesViewController: UITableViewController {
         let targetPath = target.path
         if targetPath.hasPrefix(docsPath + "/") {
             return "/" + String(targetPath.dropFirst(docsPath.count + 1))
-        }
-        // 父目录或其他（如 /../）
-        let parent = docs.deletingLastPathComponent()
-        if target == parent { return "/../" }
-        if targetPath.hasPrefix(parent.path + "/") {
-            let rel = String(targetPath.dropFirst(parent.path.count + 1))
-            return "/../" + rel
         }
         return url.lastPathComponent
     }
@@ -881,7 +832,7 @@ class PathListViewController: UITableViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        navigationItem.leftBarButtonItem = UIBarButtonItem(title: "Done", style: .done, target: self, action: #selector(close))
+        navigationItem.leftBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Done", comment: ""), style: .done, target: self, action: #selector(close))
     }
     
     @objc private func close() { dismiss(animated: true) }
@@ -900,7 +851,7 @@ class PathListViewController: UITableViewController {
     }
 }
 
-// 多标签透视预览（仿原版 Filza 纵向卡片）
+// 多标签透视预览
 class TabsPreviewViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
     private var tabs: [URL]
     private let current: URL
@@ -922,7 +873,7 @@ class TabsPreviewViewController: UIViewController, UICollectionViewDataSource, U
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Tabs"
+        title = NSLocalizedString("Tabs", comment: "")
         view.backgroundColor = .systemGray5
         
         navigationItem.leftBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Done", comment: ""), style: .done, target: self, action: #selector(close))
@@ -936,7 +887,6 @@ class TabsPreviewViewController: UIViewController, UICollectionViewDataSource, U
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.backgroundColor = .clear
-        collectionView.showsVerticalScrollIndicator = false
         collectionView.dataSource = self
         collectionView.delegate = self
         collectionView.register(TabPreviewCell.self, forCellWithReuseIdentifier: "TabCell")
@@ -956,10 +906,6 @@ class TabsPreviewViewController: UIViewController, UICollectionViewDataSource, U
         onAdd?()
         tabs = FileListViewController.tabs
         collectionView.reloadData()
-        if !tabs.isEmpty {
-            let last = IndexPath(item: tabs.count - 1, section: 0)
-            collectionView.scrollToItem(at: last, at: .bottom, animated: true)
-        }
     }
     
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int { tabs.count }
@@ -975,8 +921,7 @@ class TabsPreviewViewController: UIViewController, UICollectionViewDataSource, U
     }
     
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        let width = collectionView.bounds.width - 32
-        return CGSize(width: width, height: 220)
+        CGSize(width: collectionView.bounds.width - 32, height: 200)
     }
     
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
@@ -988,9 +933,7 @@ class TabsPreviewViewController: UIViewController, UICollectionViewDataSource, U
         let url = tabs[indexPath.item]
         onClose?(url)
         tabs.remove(at: indexPath.item)
-        collectionView.performBatchUpdates {
-            collectionView.deleteItems(at: [indexPath])
-        }
+        collectionView.reloadData()
     }
 }
 
@@ -999,8 +942,6 @@ class TabPreviewCell: UICollectionViewCell {
     private let titleBar = UIView()
     private let closeBtn = UIButton(type: .system)
     private let titleLabel = UILabel()
-    private let editLabel = UILabel()
-    private let listContainer = UIView()
     private let listStack = UIStackView()
     var onClose: (() -> Void)?
     
@@ -1010,14 +951,9 @@ class TabPreviewCell: UICollectionViewCell {
         card.translatesAutoresizingMaskIntoConstraints = false
         card.backgroundColor = .systemBackground
         card.layer.cornerRadius = 14
-        card.layer.shadowColor = UIColor.black.cgColor
-        card.layer.shadowOpacity = 0.08
-        card.layer.shadowOffset = CGSize(width: 0, height: 2)
-        card.layer.shadowRadius = 6
         contentView.addSubview(card)
         
         titleBar.translatesAutoresizingMaskIntoConstraints = false
-        titleBar.backgroundColor = .systemBackground
         card.addSubview(titleBar)
         
         closeBtn.translatesAutoresizingMaskIntoConstraints = false
@@ -1027,27 +963,14 @@ class TabPreviewCell: UICollectionViewCell {
         titleBar.addSubview(closeBtn)
         
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
         titleLabel.textAlignment = .center
-        titleLabel.lineBreakMode = .byTruncatingMiddle
         titleBar.addSubview(titleLabel)
-        
-        editLabel.translatesAutoresizingMaskIntoConstraints = false
-        editLabel.text = NSLocalizedString("Edit", comment: "")
-        editLabel.font = .systemFont(ofSize: 17)
-        editLabel.textColor = .systemBlue
-        editLabel.textAlignment = .right
-        titleBar.addSubview(editLabel)
-        
-        listContainer.translatesAutoresizingMaskIntoConstraints = false
-        listContainer.backgroundColor = .systemBackground
-        listContainer.clipsToBounds = true
-        card.addSubview(listContainer)
         
         listStack.translatesAutoresizingMaskIntoConstraints = false
         listStack.axis = .vertical
         listStack.spacing = 4
-        listContainer.addSubview(listStack)
+        card.addSubview(listStack)
         
         NSLayoutConstraint.activate([
             card.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -1058,55 +981,35 @@ class TabPreviewCell: UICollectionViewCell {
             titleBar.topAnchor.constraint(equalTo: card.topAnchor),
             titleBar.leadingAnchor.constraint(equalTo: card.leadingAnchor),
             titleBar.trailingAnchor.constraint(equalTo: card.trailingAnchor),
-            titleBar.heightAnchor.constraint(equalToConstant: 48),
+            titleBar.heightAnchor.constraint(equalToConstant: 44),
             
             closeBtn.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
             closeBtn.leadingAnchor.constraint(equalTo: titleBar.leadingAnchor, constant: 12),
-            closeBtn.widthAnchor.constraint(equalToConstant: 32),
-            closeBtn.heightAnchor.constraint(equalToConstant: 32),
-            
-            editLabel.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
-            editLabel.trailingAnchor.constraint(equalTo: titleBar.trailingAnchor, constant: -14),
-            editLabel.widthAnchor.constraint(equalToConstant: 50),
             
             titleLabel.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
-            titleLabel.leadingAnchor.constraint(equalTo: closeBtn.trailingAnchor, constant: 4),
-            titleLabel.trailingAnchor.constraint(equalTo: editLabel.leadingAnchor, constant: -4),
+            titleLabel.centerXAnchor.constraint(equalTo: titleBar.centerXAnchor),
+            titleLabel.widthAnchor.constraint(lessThanOrEqualTo: titleBar.widthAnchor, multiplier: 0.6),
             
-            listContainer.topAnchor.constraint(equalTo: titleBar.bottomAnchor),
-            listContainer.leadingAnchor.constraint(equalTo: card.leadingAnchor),
-            listContainer.trailingAnchor.constraint(equalTo: card.trailingAnchor),
-            listContainer.bottomAnchor.constraint(equalTo: card.bottomAnchor),
-            
-            listStack.topAnchor.constraint(equalTo: listContainer.topAnchor, constant: 6),
-            listStack.leadingAnchor.constraint(equalTo: listContainer.leadingAnchor, constant: 10),
-            listStack.trailingAnchor.constraint(equalTo: listContainer.trailingAnchor, constant: -10)
+            listStack.topAnchor.constraint(equalTo: titleBar.bottomAnchor, constant: 8),
+            listStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+            listStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12)
         ])
         
-        titleBar.layer.cornerRadius = 14
-        titleBar.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-        listContainer.layer.cornerRadius = 14
-        listContainer.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-        
-        // 左右滑动关闭
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         contentView.addGestureRecognizer(pan)
     }
     required init?(coder: NSCoder) { fatalError() }
     
     func configure(url: URL, isCurrent: Bool) {
-        let name = url.lastPathComponent.isEmpty ? "/" : url.lastPathComponent
-        titleLabel.text = name
-        
+        titleLabel.text = url.lastPathComponent.isEmpty ? "/" : url.lastPathComponent
         card.layer.borderWidth = isCurrent ? 2 : 0
         card.layer.borderColor = isCurrent ? UIColor.systemBlue.cgColor : nil
         
         listStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        
-        let items = FileService.shared.contents(of: url).prefix(6)
+        let items = FileService.shared.contents(of: url).prefix(5)
         if items.isEmpty {
             let empty = UILabel()
-            empty.text = "Empty"
+            empty.text = NSLocalizedString("Empty", comment: "")
             empty.font = .systemFont(ofSize: 13)
             empty.textColor = .tertiaryLabel
             listStack.addArrangedSubview(empty)
@@ -1114,8 +1017,7 @@ class TabPreviewCell: UICollectionViewCell {
             for item in items {
                 let row = UILabel()
                 row.font = .systemFont(ofSize: 13)
-                let icon = item.isDirectory ? "📁" : "📄"
-                row.text = "\(icon)  \(item.name)"
+                row.text = (item.isDirectory ? "📁 " : "📄 ") + item.name
                 row.lineBreakMode = .byTruncatingTail
                 listStack.addArrangedSubview(row)
             }
@@ -1128,12 +1030,10 @@ class TabPreviewCell: UICollectionViewCell {
         let translation = gesture.translation(in: contentView)
         switch gesture.state {
         case .changed:
-            let x = translation.x
-            contentView.transform = CGAffineTransform(translationX: x, y: 0)
-            contentView.alpha = max(0.3, 1 - abs(x) / 200)
+            contentView.transform = CGAffineTransform(translationX: translation.x, y: 0)
+            contentView.alpha = max(0.3, 1 - abs(translation.x) / 200)
         case .ended, .cancelled:
-            let threshold: CGFloat = 100
-            if abs(translation.x) > threshold {
+            if abs(translation.x) > 100 {
                 UIView.animate(withDuration: 0.2, animations: {
                     self.contentView.transform = CGAffineTransform(translationX: translation.x > 0 ? 400 : -400, y: 0)
                     self.contentView.alpha = 0
@@ -1148,8 +1048,7 @@ class TabPreviewCell: UICollectionViewCell {
                     self.contentView.alpha = 1
                 }
             }
-        default:
-            break
+        default: break
         }
     }
 }
@@ -1182,7 +1081,6 @@ class SettingsViewController: UITableViewController {
         } else {
             cell.textLabel?.text = NSLocalizedString("Clear Cache", comment: "")
             cell.textLabel?.textColor = .systemRed
-            cell.accessoryType = .none
         }
         return cell
     }
@@ -1196,6 +1094,27 @@ class SettingsViewController: UITableViewController {
         }
     }
     
+    private func editNewTabDirectory() {
+        let current = UserDefaults.standard.string(forKey: "defaultNewTabRelativePath") ?? ""
+        let alert = UIAlertController(
+            title: NSLocalizedString("New Tab Directory", comment: ""),
+            message: NSLocalizedString("Relative path from / (empty = /). If not exist, falls back to /.", comment: ""),
+            preferredStyle: .alert
+        )
+        alert.addTextField { tf in
+            tf.text = current
+            tf.placeholder = "e.g. Downloads"
+            tf.autocapitalizationType = .none
+        }
+        alert.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
+        alert.addAction(UIAlertAction(title: NSLocalizedString("Save", comment: ""), style: .default) { _ in
+            let input = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            UserDefaults.standard.set(input, forKey: "defaultNewTabRelativePath")
+            self.tableView.reloadData()
+        })
+        present(alert, animated: true)
+    }
+    
     private func clearCache() {
         do {
             try FileService.shared.clearCaches()
@@ -1207,28 +1126,6 @@ class SettingsViewController: UITableViewController {
             a.addAction(UIAlertAction(title: "OK", style: .default))
             present(a, animated: true)
         }
-    }
-    
-    private func editNewTabDirectory() {
-        let current = UserDefaults.standard.string(forKey: "defaultNewTabRelativePath") ?? ""
-        let alert = UIAlertController(
-            title: NSLocalizedString("New Tab Directory", comment: ""),
-            message: NSLocalizedString("Relative path from / (empty = /). If not exist, falls back to /.", comment: ""),
-            preferredStyle: .alert
-        )
-        alert.addTextField { tf in
-            tf.text = current
-            tf.placeholder = "e.g. Downloads  or  [App Group]"
-            tf.autocapitalizationType = .none
-            tf.autocorrectionType = .no
-        }
-        alert.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
-        alert.addAction(UIAlertAction(title: NSLocalizedString("Save", comment: ""), style: .default) { _ in
-            let input = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            UserDefaults.standard.set(input, forKey: "defaultNewTabRelativePath")
-            self.tableView.reloadData()
-        })
-        present(alert, animated: true)
     }
 }
 
@@ -1329,4 +1226,28 @@ class FileCell: UITableViewCell {
     }
     
     @objc private func infoTap() { onInfo?() }
+}
+
+extension UIButton {
+    func alignVertical(spacing: CGFloat = 4) {
+        guard let imageSize = imageView?.image?.size,
+              let text = titleLabel?.text,
+              let font = titleLabel?.font else { return }
+        
+        let titleSize = text.size(withAttributes: [.font: font])
+        let totalHeight = imageSize.height + titleSize.height + spacing
+        
+        imageEdgeInsets = UIEdgeInsets(
+            top: -(totalHeight - imageSize.height),
+            left: 0,
+            bottom: 0,
+            right: -titleSize.width
+        )
+        titleEdgeInsets = UIEdgeInsets(
+            top: 0,
+            left: -imageSize.width,
+            bottom: -(totalHeight - titleSize.height),
+            right: 0
+        )
+    }
 }

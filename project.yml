@@ -14,7 +14,6 @@ settings:
     PRODUCT_BUNDLE_IDENTIFIER: com.nan.filzalite
     INFOPLIST_KEY_CFBundleDisplayName: Filza Lite
     INFOPLIST_KEY_CFBundleDevelopmentRegion: en
-    INFOPLIST_KEY_CFBundleLocalizations: en
     CURRENT_PROJECT_VERSION: 1
     MARKETING_VERSION: 1.0
 targets:
