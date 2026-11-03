@@ -17,6 +17,12 @@ struct ContentView: View {
                 } else {
                     parentName = currentURL.lastPathComponent
                 }
+                // 更新当前标签的路径（保留已有标签）
+                if let idx = FileListViewController.tabs.firstIndex(of: currentURL) {
+                    FileListViewController.tabs[idx] = newURL
+                } else if !FileListViewController.tabs.isEmpty {
+                    FileListViewController.tabs[FileListViewController.tabs.count - 1] = newURL
+                }
                 currentURL = newURL
             },
             onGoBack: {

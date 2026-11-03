@@ -55,7 +55,10 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         loadItems()
         
         recordHistory(currentURL)
-        FileListViewController.tabs.append(currentURL)
+        // 不再在这里自动 append，避免每次导航都新增标签
+        if FileListViewController.tabs.isEmpty {
+            FileListViewController.tabs.append(currentURL)
+        }
     }
     
     private func recordHistory(_ url: URL) {
@@ -498,10 +501,13 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
                 FileListViewController.tabs.remove(at: idx)
             }
         } onAdd: {
-            // 新标签使用用户设置的默认目录，不存在则回退到 /
             let relative = UserDefaults.standard.string(forKey: "defaultNewTabRelativePath") ?? ""
             var target = FileService.shared.documentsURL
-            if !relative.isEmpty {
+            if relative == "[App Group]" || relative.lowercased() == "appgroup" {
+                if let g = FileService.shared.groupURL {
+                    target = g
+                }
+            } else if !relative.isEmpty {
                 let candidate = FileService.shared.documentsURL.appendingPathComponent(relative)
                 var isDir: ObjCBool = false
                 if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDir), isDir.boolValue {
@@ -639,57 +645,64 @@ class FavoritesViewController: UITableViewController {
     private let currentURL: URL
     var onSelect: ((URL) -> Void)?
     
-    private var systemItems: [(title: String, url: URL?, icon: String)] = []
+    private var systemItems: [(title: String, url: URL?, displayPath: String, icon: String)] = []
     
     init(currentURL: URL, onSelect: @escaping (URL) -> Void) {
         self.favorites = FileListViewController.favorites
         self.currentURL = currentURL
         self.onSelect = onSelect
         super.init(style: .insetGrouped)
-        self.title = "Favorites"
+        self.title = NSLocalizedString("Favorites", comment: "")
         
-        systemItems.append(("[root]", FileService.shared.documentsURL, "folder"))
+        systemItems.append(("[root]", FileService.shared.documentsURL, "/", "folder"))
         
         let group = FileService.shared.groupURL ?? FileService.shared.documentsURL.appendingPathComponent("AppGroupPlaceholder")
-        systemItems.append(("[App Group]", group, "folder.badge.person.crop"))
+        systemItems.append(("[App Group]", group, "group.com.nan.filzalite", "folder.badge.person.crop"))
         
-        systemItems.append(("Trash", FileService.shared.trashURL, "trash"))
+        systemItems.append(("Trash", FileService.shared.trashURL, "/../Trash", "trash"))
     }
     required init?(coder: NSCoder) { fatalError() }
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        navigationItem.leftBarButtonItem = UIBarButtonItem(title: "Done", style: .done, target: self, action: #selector(close))
+        navigationItem.leftBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Done", comment: ""), style: .done, target: self, action: #selector(close))
         navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add, target: self, action: #selector(addCurrent))
     }
     
     @objc private func close() { dismiss(animated: true) }
     
     @objc private func addCurrent() {
-        let alert = UIAlertController(title: "Add Favorite", message: "Enter relative path from / (leave empty for current)", preferredStyle: .alert)
+        let alert = UIAlertController(
+            title: NSLocalizedString("Add Favorite", comment: ""),
+            message: NSLocalizedString("Enter relative path from / (leave empty for current)", comment: ""),
+            preferredStyle: .alert
+        )
         alert.addTextField { tf in
-            tf.placeholder = "e.g. MyFolder/Sub"
+            tf.placeholder = "e.g. MyFolder/Sub  or  /../"
             tf.autocapitalizationType = .none
             tf.autocorrectionType = .no
         }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Add", style: .default) { _ in
+        alert.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
+        alert.addAction(UIAlertAction(title: NSLocalizedString("Add", comment: ""), style: .default) { _ in
             let input = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let url: URL
             if input.isEmpty {
                 url = self.currentURL
+            } else if input.hasPrefix("/../") || input == "/../" {
+                let parent = FileService.shared.documentsURL.deletingLastPathComponent()
+                let rest = input.replacingOccurrences(of: "/../", with: "")
+                url = rest.isEmpty ? parent : parent.appendingPathComponent(rest)
             } else {
-                // 相对路径从 Documents (/) 出发，允许暂时不存在
                 url = FileService.shared.documentsURL.appendingPathComponent(input)
             }
             if FileListViewController.favorites.contains(url) {
-                self.flash("Already in Favorites")
+                self.flash(NSLocalizedString("Already in Favorites", comment: ""))
                 return
             }
             FileListViewController.favorites.append(url)
             self.favorites = FileListViewController.favorites
             self.tableView.reloadData()
-            self.flash("Added")
+            self.flash(NSLocalizedString("Added", comment: ""))
         })
         present(alert, animated: true)
     }
@@ -703,7 +716,7 @@ class FavoritesViewController: UITableViewController {
     override func numberOfSections(in tableView: UITableView) -> Int { 2 }
     
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        section == 0 ? "Favorites" : "System"
+        section == 0 ? NSLocalizedString("Favorites", comment: "") : NSLocalizedString("System", comment: "")
     }
     
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
@@ -720,7 +733,7 @@ class FavoritesViewController: UITableViewController {
         } else {
             let item = systemItems[indexPath.row]
             cell.textLabel?.text = item.title
-            cell.detailTextLabel?.text = item.url?.path
+            cell.detailTextLabel?.text = item.displayPath
             cell.imageView?.image = UIImage(systemName: item.icon)
         }
         return cell
@@ -958,60 +971,40 @@ class SettingsViewController: UITableViewController {
     
     @objc private func close() { dismiss(animated: true) }
     
-    override func numberOfSections(in tableView: UITableView) -> Int { 5 }
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        [5, 4, 3, 2, 3][section]
-    }
+    override func numberOfSections(in tableView: UITableView) -> Int { 1 }
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 1 }
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        ["General", "WebDAV", "Supported Viewers", "Cloud Storage", "About"][section]
+        NSLocalizedString("General", comment: "")
     }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
-        switch (indexPath.section, indexPath.row) {
-        case (0, 0): cell.textLabel?.text = "Scroll Speed"; cell.detailTextLabel?.text = "Fast"
-        case (0, 1): cell.textLabel?.text = "Show Hidden"; cell.detailTextLabel?.text = "Show"
-        case (0, 2): cell.textLabel?.text = "Trash"
-        case (0, 3): cell.textLabel?.text = "Advanced"
-        case (0, 4):
-            cell.textLabel?.text = "New Tab Directory"
-            let rel = UserDefaults.standard.string(forKey: "defaultNewTabRelativePath") ?? ""
-            cell.detailTextLabel?.text = rel.isEmpty ? "/" : rel
-        case (1, 0): cell.textLabel?.text = "Port"; cell.detailTextLabel?.text = "10000"
-        case (1, 1): cell.textLabel?.text = "Bonjour"; cell.detailTextLabel?.text = "Yes"
-        case (1, 2): cell.textLabel?.text = "Auth"
-        case (1, 3): cell.textLabel?.text = "Enable WebDAV"
-        case (2, 0): cell.textLabel?.text = "File Association"
-        case (2, 1): cell.textLabel?.text = "Supported Viewers"
-        case (2, 2): cell.textLabel?.text = "External Viewers"
-        case (3, 0): cell.textLabel?.text = "Account"
-        case (3, 1): cell.textLabel?.text = "Allow Document Browser"; cell.detailTextLabel?.text = "Yes"
-        case (4, 0): cell.textLabel?.text = "Activation"; cell.detailTextLabel?.text = "Full"
-        case (4, 1): cell.textLabel?.text = "About"
-        case (4, 2): cell.textLabel?.text = "Update Log"
-        default: break
-        }
+        cell.textLabel?.text = NSLocalizedString("New Tab Directory", comment: "")
+        let rel = UserDefaults.standard.string(forKey: "defaultNewTabRelativePath") ?? ""
+        cell.detailTextLabel?.text = rel.isEmpty ? "/" : rel
         cell.accessoryType = .disclosureIndicator
         return cell
     }
     
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        if indexPath.section == 0 && indexPath.row == 4 {
-            editNewTabDirectory()
-        }
+        editNewTabDirectory()
     }
     
     private func editNewTabDirectory() {
         let current = UserDefaults.standard.string(forKey: "defaultNewTabRelativePath") ?? ""
-        let alert = UIAlertController(title: "New Tab Directory", message: "Relative path from / (empty = /). If not exist, falls back to /.", preferredStyle: .alert)
+        let alert = UIAlertController(
+            title: NSLocalizedString("New Tab Directory", comment: ""),
+            message: NSLocalizedString("Relative path from / (empty = /). If not exist, falls back to /.", comment: ""),
+            preferredStyle: .alert
+        )
         alert.addTextField { tf in
             tf.text = current
-            tf.placeholder = "e.g. Downloads"
+            tf.placeholder = "e.g. Downloads  or  [App Group]"
             tf.autocapitalizationType = .none
             tf.autocorrectionType = .no
         }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Save", style: .default) { _ in
+        alert.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
+        alert.addAction(UIAlertAction(title: NSLocalizedString("Save", comment: ""), style: .default) { _ in
             let input = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             UserDefaults.standard.set(input, forKey: "defaultNewTabRelativePath")
             self.tableView.reloadData()
