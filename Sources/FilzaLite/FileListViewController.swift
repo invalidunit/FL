@@ -28,7 +28,8 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         let docs = FileService.shared.documentsURL.standardizedFileURL
         let trash = FileService.shared.trashURL.standardizedFileURL
         let group = FileService.shared.groupURL?.standardizedFileURL
-        return cur == docs || cur == trash || cur == group
+        let caches = FileService.shared.cachesURL.standardizedFileURL
+        return cur == docs || cur == trash || cur == group || cur == caches
     }
     
     enum SortMode { case name, date, size }
@@ -86,6 +87,8 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
                 title = "/"
             } else if currentURL.standardizedFileURL == FileService.shared.trashURL.standardizedFileURL {
                 title = "Trash"
+            } else if currentURL.standardizedFileURL == FileService.shared.cachesURL.standardizedFileURL {
+                title = "[App Caches]"
             } else {
                 title = "[App Group]"
             }
@@ -737,7 +740,9 @@ class FavoritesViewController: UITableViewController {
         let group = FileService.shared.groupURL ?? FileService.shared.documentsURL.appendingPathComponent("AppGroupPlaceholder")
         systemItems.append(("[App Group]", group, "group.com.nan.filzalite", "folder.badge.person.crop"))
         
-        systemItems.append(("Trash", FileService.shared.trashURL, "/../Trash", "trash"))
+        systemItems.append(("Trash", FileService.shared.trashURL, ".appdata/Library/Trash", "trash"))
+        
+        systemItems.append(("[App Caches]", FileService.shared.cachesURL, ".appdata/Library/Caches", "folder"))
     }
     required init?(coder: NSCoder) { fatalError() }
     
@@ -756,7 +761,7 @@ class FavoritesViewController: UITableViewController {
             preferredStyle: .alert
         )
         alert.addTextField { tf in
-            tf.placeholder = "e.g. MyFolder/Sub  or  /../"
+            tf.placeholder = "e.g. MyFolder/Sub"
             tf.autocapitalizationType = .none
             tf.autocorrectionType = .no
         }
@@ -766,11 +771,8 @@ class FavoritesViewController: UITableViewController {
             let url: URL
             if input.isEmpty {
                 url = self.currentURL
-            } else if input.hasPrefix("/../") || input == "/../" {
-                let parent = FileService.shared.documentsURL.deletingLastPathComponent()
-                let rest = input.replacingOccurrences(of: "/../", with: "")
-                url = rest.isEmpty ? parent : parent.appendingPathComponent(rest)
             } else {
+                // 只允许相对 Documents 的路径
                 url = FileService.shared.documentsURL.appendingPathComponent(input)
             }
             if FileListViewController.favorites.contains(url) {

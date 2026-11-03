@@ -5,18 +5,20 @@ class FileService {
     
     private let fileManager = FileManager.default
     
-    /// App 容器根（Documents 的父目录）
-    var containerRoot: URL {
-        documentsURL.deletingLastPathComponent()
-    }
-    
     var documentsURL: URL {
         fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
     
-    /// 与 Documents 同级的 Trash
+    var libraryURL: URL {
+        documentsURL.deletingLastPathComponent().appendingPathComponent("Library")
+    }
+    
     var trashURL: URL {
-        containerRoot.appendingPathComponent("Trash")
+        libraryURL.appendingPathComponent("Trash")
+    }
+    
+    var cachesURL: URL {
+        libraryURL.appendingPathComponent("Caches")
     }
     
     var groupURL: URL? {
@@ -32,21 +34,23 @@ class FileService {
     
     func createTrashIfNeeded() {
         if !fileManager.fileExists(atPath: trashURL.path) {
-            do {
-                try fileManager.createDirectory(at: trashURL, withIntermediateDirectories: true)
-            } catch {
-                print("Failed to create Trash: \(error)")
-            }
+            try? fileManager.createDirectory(at: trashURL, withIntermediateDirectories: true)
         }
     }
     
+    /// 只允许从 4 个入口往下访问
     func isAllowed(_ url: URL) -> Bool {
         let target = url.standardizedFileURL.path
-        let docs = documentsURL.standardizedFileURL.path
-        let trash = trashURL.standardizedFileURL.path
         
-        if target == docs || target.hasPrefix(docs + "/") { return true }
-        if target == trash || target.hasPrefix(trash + "/") { return true }
+        let roots = [
+            documentsURL.standardizedFileURL.path,
+            trashURL.standardizedFileURL.path,
+            cachesURL.standardizedFileURL.path
+        ]
+        
+        for r in roots {
+            if target == r || target.hasPrefix(r + "/") { return true }
+        }
         
         if let g = groupURL {
             let gp = g.standardizedFileURL.path
