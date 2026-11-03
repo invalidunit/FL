@@ -5,6 +5,9 @@ options:
     iOS: "15.0"
   bundleIdPrefix: com.nan
   createIntermediateGroups: true
+  knownRegions:
+    - en
+    - zh-Hans
 settings:
   base:
     DEVELOPMENT_TEAM: ""
