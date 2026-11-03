@@ -900,7 +900,7 @@ class PathListViewController: UITableViewController {
     }
 }
 
-// 多标签透视预览
+// 多标签透视预览（仿原版 Filza 纵向卡片）
 class TabsPreviewViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
     private var tabs: [URL]
     private let current: URL
@@ -923,19 +923,20 @@ class TabsPreviewViewController: UIViewController, UICollectionViewDataSource, U
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Tabs"
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = .systemGray5
         
-        navigationItem.leftBarButtonItem = UIBarButtonItem(title: "Done", style: .done, target: self, action: #selector(close))
+        navigationItem.leftBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Done", comment: ""), style: .done, target: self, action: #selector(close))
         navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add, target: self, action: #selector(addTab))
         
         let layout = UICollectionViewFlowLayout()
-        layout.scrollDirection = .horizontal
-        layout.minimumLineSpacing = 16
-        layout.sectionInset = UIEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+        layout.scrollDirection = .vertical
+        layout.minimumLineSpacing = 12
+        layout.sectionInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.backgroundColor = .clear
+        collectionView.showsVerticalScrollIndicator = false
         collectionView.dataSource = self
         collectionView.delegate = self
         collectionView.register(TabPreviewCell.self, forCellWithReuseIdentifier: "TabCell")
@@ -955,13 +956,10 @@ class TabsPreviewViewController: UIViewController, UICollectionViewDataSource, U
         onAdd?()
         tabs = FileListViewController.tabs
         collectionView.reloadData()
-        flash("Added")
-    }
-    
-    private func flash(_ text: String) {
-        let a = UIAlertController(title: nil, message: text, preferredStyle: .alert)
-        present(a, animated: true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { a.dismiss(animated: true) }
+        if !tabs.isEmpty {
+            let last = IndexPath(item: tabs.count - 1, section: 0)
+            collectionView.scrollToItem(at: last, at: .bottom, animated: true)
+        }
     }
     
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int { tabs.count }
@@ -971,107 +969,189 @@ class TabsPreviewViewController: UIViewController, UICollectionViewDataSource, U
         let url = tabs[indexPath.item]
         cell.configure(url: url, isCurrent: url == current)
         cell.onClose = { [weak self] in
-            guard let self = self else { return }
-            self.onClose?(url)
-            if indexPath.item < self.tabs.count {
-                self.tabs.remove(at: indexPath.item)
-            }
-            collectionView.reloadData()
+            self?.closeTab(at: indexPath)
         }
         return cell
     }
     
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        CGSize(width: 220, height: 280)
+        let width = collectionView.bounds.width - 32
+        return CGSize(width: width, height: 220)
     }
     
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         onSelect?(tabs[indexPath.item])
     }
+    
+    private func closeTab(at indexPath: IndexPath) {
+        guard indexPath.item < tabs.count else { return }
+        let url = tabs[indexPath.item]
+        onClose?(url)
+        tabs.remove(at: indexPath.item)
+        collectionView.performBatchUpdates {
+            collectionView.deleteItems(at: [indexPath])
+        }
+    }
 }
 
 class TabPreviewCell: UICollectionViewCell {
-    private let preview = UIView()
-    private let titleLabel = UILabel()
+    private let card = UIView()
+    private let titleBar = UIView()
     private let closeBtn = UIButton(type: .system)
-    private let listPreview = UIStackView()
+    private let titleLabel = UILabel()
+    private let editLabel = UILabel()
+    private let listContainer = UIView()
+    private let listStack = UIStackView()
     var onClose: (() -> Void)?
     
     override init(frame: CGRect) {
         super.init(frame: frame)
-        contentView.backgroundColor = .secondarySystemBackground
-        contentView.layer.cornerRadius = 12
-        contentView.clipsToBounds = true
         
-        preview.translatesAutoresizingMaskIntoConstraints = false
-        preview.backgroundColor = .systemBackground
-        preview.layer.cornerRadius = 8
-        contentView.addSubview(preview)
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.backgroundColor = .systemBackground
+        card.layer.cornerRadius = 14
+        card.layer.shadowColor = UIColor.black.cgColor
+        card.layer.shadowOpacity = 0.08
+        card.layer.shadowOffset = CGSize(width: 0, height: 2)
+        card.layer.shadowRadius = 6
+        contentView.addSubview(card)
         
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
-        titleLabel.textAlignment = .center
-        contentView.addSubview(titleLabel)
+        titleBar.translatesAutoresizingMaskIntoConstraints = false
+        titleBar.backgroundColor = .systemBackground
+        card.addSubview(titleBar)
         
         closeBtn.translatesAutoresizingMaskIntoConstraints = false
-        closeBtn.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
-        closeBtn.tintColor = .systemGray
+        closeBtn.setImage(UIImage(systemName: "xmark"), for: .normal)
+        closeBtn.tintColor = .systemRed
         closeBtn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
-        contentView.addSubview(closeBtn)
+        titleBar.addSubview(closeBtn)
         
-        listPreview.translatesAutoresizingMaskIntoConstraints = false
-        listPreview.axis = .vertical
-        listPreview.spacing = 4
-        preview.addSubview(listPreview)
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        titleLabel.textAlignment = .center
+        titleLabel.lineBreakMode = .byTruncatingMiddle
+        titleBar.addSubview(titleLabel)
+        
+        editLabel.translatesAutoresizingMaskIntoConstraints = false
+        editLabel.text = NSLocalizedString("Edit", comment: "")
+        editLabel.font = .systemFont(ofSize: 17)
+        editLabel.textColor = .systemBlue
+        editLabel.textAlignment = .right
+        titleBar.addSubview(editLabel)
+        
+        listContainer.translatesAutoresizingMaskIntoConstraints = false
+        listContainer.backgroundColor = .systemBackground
+        listContainer.clipsToBounds = true
+        card.addSubview(listContainer)
+        
+        listStack.translatesAutoresizingMaskIntoConstraints = false
+        listStack.axis = .vertical
+        listStack.spacing = 4
+        listContainer.addSubview(listStack)
         
         NSLayoutConstraint.activate([
-            closeBtn.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
-            closeBtn.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -6),
-            closeBtn.widthAnchor.constraint(equalToConstant: 24),
-            closeBtn.heightAnchor.constraint(equalToConstant: 24),
+            card.topAnchor.constraint(equalTo: contentView.topAnchor),
+            card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             
-            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-            titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
-            titleLabel.trailingAnchor.constraint(equalTo: closeBtn.leadingAnchor, constant: -4),
+            titleBar.topAnchor.constraint(equalTo: card.topAnchor),
+            titleBar.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            titleBar.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            titleBar.heightAnchor.constraint(equalToConstant: 48),
             
-            preview.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
-            preview.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
-            preview.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
-            preview.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+            closeBtn.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
+            closeBtn.leadingAnchor.constraint(equalTo: titleBar.leadingAnchor, constant: 12),
+            closeBtn.widthAnchor.constraint(equalToConstant: 32),
+            closeBtn.heightAnchor.constraint(equalToConstant: 32),
             
-            listPreview.topAnchor.constraint(equalTo: preview.topAnchor, constant: 8),
-            listPreview.leadingAnchor.constraint(equalTo: preview.leadingAnchor, constant: 8),
-            listPreview.trailingAnchor.constraint(equalTo: preview.trailingAnchor, constant: -8)
+            editLabel.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
+            editLabel.trailingAnchor.constraint(equalTo: titleBar.trailingAnchor, constant: -14),
+            editLabel.widthAnchor.constraint(equalToConstant: 50),
+            
+            titleLabel.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: closeBtn.trailingAnchor, constant: 4),
+            titleLabel.trailingAnchor.constraint(equalTo: editLabel.leadingAnchor, constant: -4),
+            
+            listContainer.topAnchor.constraint(equalTo: titleBar.bottomAnchor),
+            listContainer.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            listContainer.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            listContainer.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+            
+            listStack.topAnchor.constraint(equalTo: listContainer.topAnchor, constant: 6),
+            listStack.leadingAnchor.constraint(equalTo: listContainer.leadingAnchor, constant: 10),
+            listStack.trailingAnchor.constraint(equalTo: listContainer.trailingAnchor, constant: -10)
         ])
+        
+        titleBar.layer.cornerRadius = 14
+        titleBar.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        listContainer.layer.cornerRadius = 14
+        listContainer.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        
+        // 左右滑动关闭
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        contentView.addGestureRecognizer(pan)
     }
     required init?(coder: NSCoder) { fatalError() }
     
     func configure(url: URL, isCurrent: Bool) {
-        titleLabel.text = url.lastPathComponent
-        contentView.layer.borderWidth = isCurrent ? 2 : 0
-        contentView.layer.borderColor = isCurrent ? UIColor.systemBlue.cgColor : nil
+        let name = url.lastPathComponent.isEmpty ? "/" : url.lastPathComponent
+        titleLabel.text = name
         
-        listPreview.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        card.layer.borderWidth = isCurrent ? 2 : 0
+        card.layer.borderColor = isCurrent ? UIColor.systemBlue.cgColor : nil
+        
+        listStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         
         let items = FileService.shared.contents(of: url).prefix(6)
         if items.isEmpty {
             let empty = UILabel()
             empty.text = "Empty"
-            empty.font = .systemFont(ofSize: 11)
-            empty.textColor = .secondaryLabel
-            listPreview.addArrangedSubview(empty)
+            empty.font = .systemFont(ofSize: 13)
+            empty.textColor = .tertiaryLabel
+            listStack.addArrangedSubview(empty)
         } else {
             for item in items {
                 let row = UILabel()
-                row.font = .systemFont(ofSize: 11)
-                row.text = (item.isDirectory ? "📁 " : "📄 ") + item.name
+                row.font = .systemFont(ofSize: 13)
+                let icon = item.isDirectory ? "📁" : "📄"
+                row.text = "\(icon)  \(item.name)"
                 row.lineBreakMode = .byTruncatingTail
-                listPreview.addArrangedSubview(row)
+                listStack.addArrangedSubview(row)
             }
         }
     }
     
     @objc private func closeTapped() { onClose?() }
+    
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        let translation = gesture.translation(in: contentView)
+        switch gesture.state {
+        case .changed:
+            let x = translation.x
+            contentView.transform = CGAffineTransform(translationX: x, y: 0)
+            contentView.alpha = max(0.3, 1 - abs(x) / 200)
+        case .ended, .cancelled:
+            let threshold: CGFloat = 100
+            if abs(translation.x) > threshold {
+                UIView.animate(withDuration: 0.2, animations: {
+                    self.contentView.transform = CGAffineTransform(translationX: translation.x > 0 ? 400 : -400, y: 0)
+                    self.contentView.alpha = 0
+                }) { _ in
+                    self.onClose?()
+                    self.contentView.transform = .identity
+                    self.contentView.alpha = 1
+                }
+            } else {
+                UIView.animate(withDuration: 0.2) {
+                    self.contentView.transform = .identity
+                    self.contentView.alpha = 1
+                }
+            }
+        default:
+            break
+        }
+    }
 }
 
 // 设置页
