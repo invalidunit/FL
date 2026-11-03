@@ -19,8 +19,9 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     private let searchController = UISearchController(searchResultsController: nil)
     private var isSearching: Bool { searchController.isActive && !(searchController.searchBar.text?.isEmpty ?? true) }
     
-    // 多窗口
-    static var windows: [URL] = []
+    static var history: [URL] = []
+    static var favorites: [URL] = []
+    static var tabs: [URL] = []
     
     enum SortMode { case name, date, size }
     enum ClipboardMode { case none, copy, move }
@@ -45,9 +46,14 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         setupSelectedCount()
         loadItems()
         
-        // 记录窗口
-        if !FileListViewController.windows.contains(currentURL) {
-            FileListViewController.windows.append(currentURL)
+        if !FileListViewController.history.contains(currentURL) {
+            FileListViewController.history.insert(currentURL, at: 0)
+            if FileListViewController.history.count > 50 {
+                FileListViewController.history.removeLast()
+            }
+        }
+        if !FileListViewController.tabs.contains(currentURL) {
+            FileListViewController.tabs.append(currentURL)
         }
     }
     
@@ -176,12 +182,12 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
             let more = makeToolbarItem(title: NSLocalizedString("More", comment: ""), image: "square.and.arrow.up", action: #selector(moreTapped))
             toolbarItems = [copy, flex, move, flex, rename, flex, trash, flex, more]
         } else {
-            let clip = UIBarButtonItem(image: UIImage(systemName: "doc.on.clipboard"), style: .plain, target: self, action: #selector(pasteTapped))
-            let clock = UIBarButtonItem(image: UIImage(systemName: "clock"), style: .plain, target: self, action: #selector(recentsTapped))
+            let paste = UIBarButtonItem(image: UIImage(systemName: "doc.on.clipboard"), style: .plain, target: self, action: #selector(pasteTapped))
+            let history = UIBarButtonItem(image: UIImage(systemName: "clock"), style: .plain, target: self, action: #selector(historyTapped))
             let star = UIBarButtonItem(image: UIImage(systemName: "star"), style: .plain, target: self, action: #selector(favoritesTapped))
             let gear = UIBarButtonItem(image: UIImage(systemName: "gear"), style: .plain, target: self, action: #selector(settingsTapped))
-            let win = UIBarButtonItem(image: UIImage(systemName: "square.on.square"), style: .plain, target: self, action: #selector(windowsTapped))
-            toolbarItems = [clip, flex, clock, flex, star, flex, gear, flex, win]
+            let tabs = UIBarButtonItem(image: UIImage(systemName: "square.on.square"), style: .plain, target: self, action: #selector(tabsTapped))
+            toolbarItems = [paste, flex, history, flex, star, flex, gear, flex, tabs]
         }
         navigationController?.isToolbarHidden = false
         navigationController?.toolbar.barTintColor = .secondarySystemBackground
@@ -201,23 +207,48 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         updateFooter()
     }
     
+    // 真实已用/总容量，右对齐
+    private func updateFooter() {
+        let footer = UIView(frame: CGRect(x: 0, y: 0, width: tableView.bounds.width, height: 36))
+        let label = UILabel()
+        
+        let (used, total) = deviceStorage()
+        let countText = items.isEmpty ? "Empty" : "\(items.count) item(s)."
+        label.text = "\(used)/\(total)GB   \(countText)"
+        label.font = .systemFont(ofSize: 12)
+        label.textColor = .secondaryLabel
+        label.textAlignment = .right
+        label.translatesAutoresizingMaskIntoConstraints = false
+        footer.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.trailingAnchor.constraint(equalTo: footer.trailingAnchor, constant: -12),
+            label.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
+            label.leadingAnchor.constraint(greaterThanOrEqualTo: footer.leadingAnchor, constant: 12)
+        ])
+        tableView.tableFooterView = footer
+    }
+    
+    /// 计算设备存储：已用 / 总容量（GB）
+    private func deviceStorage() -> (Int, Int) {
+        do {
+            let attrs = try FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory())
+            let total = (attrs[.systemSize] as? NSNumber)?.int64Value ?? 0
+            let free = (attrs[.systemFreeSize] as? NSNumber)?.int64Value ?? 0
+            let used = total - free
+            let totalGB = Int(total / 1_000_000_000)
+            let usedGB = Int(used / 1_000_000_000)
+            return (usedGB, totalGB)
+        } catch {
+            return (0, 0)
+        }
+    }
+    
     private func applySort() {
         switch sortMode {
         case .name: items.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         case .date: items.sort { ($0.modificationDate ?? .distantPast) > ($1.modificationDate ?? .distantPast) }
         case .size: items.sort { $0.size > $1.size }
         }
-    }
-    
-    private func updateFooter() {
-        let label = UILabel()
-        let countText = items.isEmpty ? "Empty" : "\(items.count) item(s)."
-        label.text = "/dev/disk1s8   28.2 GB   \(countText)"
-        label.font = .systemFont(ofSize: 12)
-        label.textColor = .secondaryLabel
-        label.textAlignment = .center
-        label.frame = CGRect(x: 0, y: 0, width: tableView.bounds.width, height: 30)
-        tableView.tableFooterView = label
     }
     
     @objc private func goBack() {
@@ -318,19 +349,50 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     }
     
     @objc private func pasteTapped() {
-        guard !clipboard.isEmpty else { return }
-        for item in clipboard {
-            switch clipboardMode {
-            case .copy: try? FileService.shared.copy(item: item, to: currentURL)
-            case .move: try? FileService.shared.move(item: item, to: currentURL)
-            case .none: break
+        if !clipboard.isEmpty {
+            for item in clipboard {
+                switch clipboardMode {
+                case .copy: try? FileService.shared.copy(item: item, to: currentURL)
+                case .move: try? FileService.shared.move(item: item, to: currentURL)
+                case .none: break
+                }
             }
+            if clipboardMode == .move {
+                clipboard.removeAll()
+                clipboardMode = .none
+            }
+            animateReload(fromRight: true)
+            return
         }
-        if clipboardMode == .move {
-            clipboard.removeAll()
-            clipboardMode = .none
+        
+        if let text = UIPasteboard.general.string,
+           let url = URL(string: text),
+           url.scheme == "http" || url.scheme == "https" {
+            downloadFromURL(url)
+        } else {
+            flashMessage("Nothing to paste")
         }
-        animateReload(fromRight: true)
+    }
+    
+    private func downloadFromURL(_ url: URL) {
+        let name = url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent
+        let dest = currentURL.appendingPathComponent(name)
+        
+        let alert = UIAlertController(title: "Downloading", message: name, preferredStyle: .alert)
+        present(alert, animated: true)
+        
+        URLSession.shared.downloadTask(with: url) { tempURL, _, error in
+            DispatchQueue.main.async {
+                alert.dismiss(animated: true)
+                if let tempURL = tempURL, error == nil {
+                    try? FileManager.default.moveItem(at: tempURL, to: dest)
+                    self.loadItems()
+                    self.flashMessage("Downloaded")
+                } else {
+                    self.flashMessage("Download failed")
+                }
+            }
+        }.resume()
     }
     
     @objc private func renameTapped() {
@@ -360,21 +422,22 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         updateSelectedCount()
     }
     
-    @objc private func favoritesTapped() {
-        let vc = SimpleListViewController(title: NSLocalizedString("Favorites", comment: ""), items: [
-            "[jbroot]", "[rootfs]", "/rootfs/var", "Documents", "Applications", "CrashReporter",
-            "Scripts", "Mount Points", "Trash", "Music", "App Manager",
-            "mobile", "zhaonan", "Home"
-        ])
+    @objc private func historyTapped() {
+        let vc = PathListViewController(title: "History", paths: FileListViewController.history) { [weak self] url in
+            self?.dismiss(animated: true) {
+                self?.onNavigate?(url)
+            }
+        }
         let nav = UINavigationController(rootViewController: vc)
         present(nav, animated: true)
     }
     
-    @objc private func recentsTapped() {
-        let vc = SimpleListViewController(title: NSLocalizedString("Recents", comment: ""), items: [
-            "Filza1", "Filza.entitlements", "build.yml", "Packages", "control",
-            "com.nan.bindfs_0.7...iphoneos-arm64.deb", "Info.plist"
-        ])
+    @objc private func favoritesTapped() {
+        let vc = PathListViewController(title: "Favorites", paths: FileListViewController.favorites, canAdd: true, currentURL: currentURL) { [weak self] url in
+            self?.dismiss(animated: true) {
+                self?.onNavigate?(url)
+            }
+        }
         let nav = UINavigationController(rootViewController: vc)
         present(nav, animated: true)
     }
@@ -385,11 +448,18 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         present(nav, animated: true)
     }
     
-    // 多窗口真实实现
-    @objc private func windowsTapped() {
-        let vc = WindowsViewController(windows: FileListViewController.windows) { [weak self] url in
+    @objc private func tabsTapped() {
+        let vc = TabsViewController(tabs: FileListViewController.tabs, current: currentURL) { [weak self] url in
             self?.dismiss(animated: true) {
                 self?.onNavigate?(url)
+            }
+        } onClose: { [weak self] url in
+            FileListViewController.tabs.removeAll { $0 == url }
+            self?.loadItems()
+        } onAdd: { [weak self] in
+            guard let self = self else { return }
+            if !FileListViewController.tabs.contains(self.currentURL) {
+                FileListViewController.tabs.append(self.currentURL)
             }
         }
         let nav = UINavigationController(rootViewController: vc)
@@ -445,7 +515,6 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         }
     }
     
-    // 长按菜单
     override func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
         let item = isSearching ? filteredItems[indexPath.row] : items[indexPath.row]
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
@@ -464,7 +533,6 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         }
     }
     
-    // MARK: Table
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         isSearching ? filteredItems.count : items.count
     }
@@ -515,45 +583,18 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     }
 }
 
-// 多窗口列表
-class WindowsViewController: UITableViewController {
-    private var windows: [URL]
+// 路径列表（历史 / 收藏）
+class PathListViewController: UITableViewController {
+    private var paths: [URL]
     var onSelect: ((URL) -> Void)?
+    private let canAdd: Bool
+    private let currentURL: URL?
     
-    init(windows: [URL], onSelect: @escaping (URL) -> Void) {
-        self.windows = windows
+    init(title: String, paths: [URL], canAdd: Bool = false, currentURL: URL? = nil, onSelect: @escaping (URL) -> Void) {
+        self.paths = paths
+        self.canAdd = canAdd
+        self.currentURL = currentURL
         self.onSelect = onSelect
-        super.init(style: .insetGrouped)
-    }
-    required init?(coder: NSCoder) { fatalError() }
-    
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        title = "Windows"
-        navigationItem.leftBarButtonItem = UIBarButtonItem(title: "Done", style: .done, target: self, action: #selector(close))
-    }
-    
-    @objc private func close() { dismiss(animated: true) }
-    
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { windows.count }
-    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-        let url = windows[indexPath.row]
-        cell.textLabel?.text = url.lastPathComponent
-        cell.detailTextLabel?.text = url.path
-        cell.imageView?.image = UIImage(systemName: "folder")
-        return cell
-    }
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        onSelect?(windows[indexPath.row])
-    }
-}
-
-// 简单列表（收藏夹 / 最近）
-class SimpleListViewController: UITableViewController {
-    private let items: [String]
-    init(title: String, items: [String]) {
-        self.items = items
         super.init(style: .insetGrouped)
         self.title = title
     }
@@ -561,19 +602,93 @@ class SimpleListViewController: UITableViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        navigationItem.leftBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Done", comment: ""), style: .done, target: self, action: #selector(close))
-        navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add, target: self, action: #selector(add))
+        navigationItem.leftBarButtonItem = UIBarButtonItem(title: "Done", style: .done, target: self, action: #selector(close))
+        if canAdd {
+            navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add, target: self, action: #selector(addCurrent))
+        }
     }
     
     @objc private func close() { dismiss(animated: true) }
-    @objc private func add() { }
     
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { items.count }
+    @objc private func addCurrent() {
+        guard let url = currentURL else { return }
+        if !FileListViewController.favorites.contains(url) {
+            FileListViewController.favorites.append(url)
+            paths = FileListViewController.favorites
+            tableView.reloadData()
+        }
+    }
+    
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { paths.count }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-        cell.textLabel?.text = items[indexPath.row]
-        cell.imageView?.image = UIImage(systemName: "star")
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let url = paths[indexPath.row]
+        cell.textLabel?.text = url.lastPathComponent
+        cell.detailTextLabel?.text = url.path
+        cell.imageView?.image = UIImage(systemName: "folder")
         return cell
+    }
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        onSelect?(paths[indexPath.row])
+    }
+}
+
+// 多标签
+class TabsViewController: UITableViewController {
+    private var tabs: [URL]
+    private let current: URL
+    var onSelect: ((URL) -> Void)?
+    var onClose: ((URL) -> Void)?
+    var onAdd: (() -> Void)?
+    
+    init(tabs: [URL], current: URL, onSelect: @escaping (URL) -> Void, onClose: @escaping (URL) -> Void, onAdd: @escaping () -> Void) {
+        self.tabs = tabs
+        self.current = current
+        self.onSelect = onSelect
+        self.onClose = onClose
+        self.onAdd = onAdd
+        super.init(style: .insetGrouped)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = "Tabs"
+        navigationItem.leftBarButtonItem = UIBarButtonItem(title: "Done", style: .done, target: self, action: #selector(close))
+        navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add, target: self, action: #selector(addTab))
+    }
+    
+    @objc private func close() { dismiss(animated: true) }
+    @objc private func addTab() {
+        onAdd?()
+        tabs = FileListViewController.tabs
+        tableView.reloadData()
+    }
+    
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { tabs.count }
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let url = tabs[indexPath.row]
+        cell.textLabel?.text = url.lastPathComponent
+        cell.detailTextLabel?.text = url.path
+        cell.imageView?.image = UIImage(systemName: "folder")
+        if url == current {
+            cell.accessoryType = .checkmark
+        }
+        return cell
+    }
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        onSelect?(tabs[indexPath.row])
+    }
+    override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        let close = UIContextualAction(style: .destructive, title: "Close") { _, _, done in
+            let url = self.tabs[indexPath.row]
+            self.onClose?(url)
+            self.tabs.remove(at: indexPath.row)
+            tableView.deleteRows(at: [indexPath], with: .automatic)
+            done(true)
+        }
+        return UISwipeActionsConfiguration(actions: [close])
     }
 }
 
@@ -590,12 +705,12 @@ class SettingsViewController: UITableViewController {
     
     @objc private func close() { dismiss(animated: true) }
     
-    override func numberOfSections(in tableView: UITableView) -> Int { 4 }
+    override func numberOfSections(in tableView: UITableView) -> Int { 5 }
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        [4, 4, 3, 2][section]
+        [4, 4, 3, 2, 3][section]
     }
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        ["General", "WebDAV", "Supported Viewers", "About"][section]
+        ["General", "WebDAV", "Supported Viewers", "Cloud Storage", "About"][section]
     }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
@@ -611,8 +726,11 @@ class SettingsViewController: UITableViewController {
         case (2, 0): cell.textLabel?.text = "File Association"
         case (2, 1): cell.textLabel?.text = "Supported Viewers"
         case (2, 2): cell.textLabel?.text = "External Viewers"
-        case (3, 0): cell.textLabel?.text = "Activation"; cell.detailTextLabel?.text = "Full"
-        case (3, 1): cell.textLabel?.text = "About"
+        case (3, 0): cell.textLabel?.text = "Account"
+        case (3, 1): cell.textLabel?.text = "Allow Document Browser"; cell.detailTextLabel?.text = "Yes"
+        case (4, 0): cell.textLabel?.text = "Activation"; cell.detailTextLabel?.text = "Full"
+        case (4, 1): cell.textLabel?.text = "About"
+        case (4, 2): cell.textLabel?.text = "Update Log"
         default: break
         }
         cell.accessoryType = .disclosureIndicator
