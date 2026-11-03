@@ -24,7 +24,11 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     static var tabs: [URL] = []
     
     private var isRoot: Bool {
-        currentURL.standardizedFileURL == FileService.shared.documentsURL.standardizedFileURL
+        let cur = currentURL.standardizedFileURL
+        let docs = FileService.shared.documentsURL.standardizedFileURL
+        let trash = FileService.shared.trashURL.standardizedFileURL
+        let group = FileService.shared.groupURL?.standardizedFileURL
+        return cur == docs || cur == trash || cur == group
     }
     
     enum SortMode { case name, date, size }
@@ -65,7 +69,13 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     private func setupNavigation() {
         if isRoot {
             navigationItem.leftBarButtonItem = nil
-            title = "/"
+            if currentURL.standardizedFileURL == FileService.shared.documentsURL.standardizedFileURL {
+                title = "/"
+            } else if currentURL.standardizedFileURL == FileService.shared.trashURL.standardizedFileURL {
+                title = "Trash"
+            } else {
+                title = "[App Group]"
+            }
         } else {
             let backTitle = parentName.isEmpty ? "/" : parentName
             let back = makeBackButton(title: backTitle)
@@ -87,14 +97,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     }
     
     func updateNavigation() {
-        if isRoot {
-            navigationItem.leftBarButtonItem = nil
-            title = "/"
-        } else {
-            let backTitle = parentName.isEmpty ? "/" : parentName
-            navigationItem.leftBarButtonItem = makeBackButton(title: backTitle)
-            title = currentURL.lastPathComponent
-        }
+        setupNavigation()
     }
     
     private func setupSearch() {
@@ -494,9 +497,18 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
             if let idx = FileListViewController.tabs.firstIndex(of: url) {
                 FileListViewController.tabs.remove(at: idx)
             }
-        } onAdd: { [weak self] in
-            guard let self = self else { return }
-            FileListViewController.tabs.append(self.currentURL)
+        } onAdd: {
+            // 新标签使用用户设置的默认目录，不存在则回退到 /
+            let relative = UserDefaults.standard.string(forKey: "defaultNewTabRelativePath") ?? ""
+            var target = FileService.shared.documentsURL
+            if !relative.isEmpty {
+                let candidate = FileService.shared.documentsURL.appendingPathComponent(relative)
+                var isDir: ObjCBool = false
+                if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDir), isDir.boolValue {
+                    target = candidate
+                }
+            }
+            FileListViewController.tabs.append(target)
         }
         let nav = UINavigationController(rootViewController: vc)
         nav.modalPresentationStyle = .pageSheet
@@ -621,13 +633,12 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     }
 }
 
-// 收藏夹（用户收藏 + 底部系统分区）
+// 收藏夹
 class FavoritesViewController: UITableViewController {
     private var favorites: [URL]
     private let currentURL: URL
     var onSelect: ((URL) -> Void)?
     
-    // 底部系统项
     private var systemItems: [(title: String, url: URL?, icon: String)] = []
     
     init(currentURL: URL, onSelect: @escaping (URL) -> Void) {
@@ -637,10 +648,11 @@ class FavoritesViewController: UITableViewController {
         super.init(style: .insetGrouped)
         self.title = "Favorites"
         
-        // 构建系统分区（参考视频挂载点）
-        if let g = FileService.shared.groupURL {
-            systemItems.append(("[App Group]", g, "folder.badge.person.crop"))
-        }
+        systemItems.append(("[root]", FileService.shared.documentsURL, "folder"))
+        
+        let group = FileService.shared.groupURL ?? FileService.shared.documentsURL.appendingPathComponent("AppGroupPlaceholder")
+        systemItems.append(("[App Group]", group, "folder.badge.person.crop"))
+        
         systemItems.append(("Trash", FileService.shared.trashURL, "trash"))
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -654,14 +666,32 @@ class FavoritesViewController: UITableViewController {
     @objc private func close() { dismiss(animated: true) }
     
     @objc private func addCurrent() {
-        if FileListViewController.favorites.contains(currentURL) {
-            flash("Already in Favorites")
-            return
+        let alert = UIAlertController(title: "Add Favorite", message: "Enter relative path from / (leave empty for current)", preferredStyle: .alert)
+        alert.addTextField { tf in
+            tf.placeholder = "e.g. MyFolder/Sub"
+            tf.autocapitalizationType = .none
+            tf.autocorrectionType = .no
         }
-        FileListViewController.favorites.append(currentURL)
-        favorites = FileListViewController.favorites
-        tableView.reloadData()
-        flash("Added")
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Add", style: .default) { _ in
+            let input = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let url: URL
+            if input.isEmpty {
+                url = self.currentURL
+            } else {
+                // 相对路径从 Documents (/) 出发，允许暂时不存在
+                url = FileService.shared.documentsURL.appendingPathComponent(input)
+            }
+            if FileListViewController.favorites.contains(url) {
+                self.flash("Already in Favorites")
+                return
+            }
+            FileListViewController.favorites.append(url)
+            self.favorites = FileListViewController.favorites
+            self.tableView.reloadData()
+            self.flash("Added")
+        })
+        present(alert, animated: true)
     }
     
     private func flash(_ text: String) {
@@ -930,7 +960,7 @@ class SettingsViewController: UITableViewController {
     
     override func numberOfSections(in tableView: UITableView) -> Int { 5 }
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        [4, 4, 3, 2, 3][section]
+        [5, 4, 3, 2, 3][section]
     }
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         ["General", "WebDAV", "Supported Viewers", "Cloud Storage", "About"][section]
@@ -942,6 +972,10 @@ class SettingsViewController: UITableViewController {
         case (0, 1): cell.textLabel?.text = "Show Hidden"; cell.detailTextLabel?.text = "Show"
         case (0, 2): cell.textLabel?.text = "Trash"
         case (0, 3): cell.textLabel?.text = "Advanced"
+        case (0, 4):
+            cell.textLabel?.text = "New Tab Directory"
+            let rel = UserDefaults.standard.string(forKey: "defaultNewTabRelativePath") ?? ""
+            cell.detailTextLabel?.text = rel.isEmpty ? "/" : rel
         case (1, 0): cell.textLabel?.text = "Port"; cell.detailTextLabel?.text = "10000"
         case (1, 1): cell.textLabel?.text = "Bonjour"; cell.detailTextLabel?.text = "Yes"
         case (1, 2): cell.textLabel?.text = "Auth"
@@ -958,6 +992,31 @@ class SettingsViewController: UITableViewController {
         }
         cell.accessoryType = .disclosureIndicator
         return cell
+    }
+    
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        if indexPath.section == 0 && indexPath.row == 4 {
+            editNewTabDirectory()
+        }
+    }
+    
+    private func editNewTabDirectory() {
+        let current = UserDefaults.standard.string(forKey: "defaultNewTabRelativePath") ?? ""
+        let alert = UIAlertController(title: "New Tab Directory", message: "Relative path from / (empty = /). If not exist, falls back to /.", preferredStyle: .alert)
+        alert.addTextField { tf in
+            tf.text = current
+            tf.placeholder = "e.g. Downloads"
+            tf.autocapitalizationType = .none
+            tf.autocorrectionType = .no
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { _ in
+            let input = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            UserDefaults.standard.set(input, forKey: "defaultNewTabRelativePath")
+            self.tableView.reloadData()
+        })
+        present(alert, animated: true)
     }
 }
 
