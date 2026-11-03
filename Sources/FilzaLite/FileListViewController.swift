@@ -364,37 +364,17 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     }
     
     private func promptNewFolder() {
-        let a = UIAlertController(title: nil, message: nil, preferredStyle: .alert)
-        a.addTextField { $0.placeholder = "Untitled Folder" }
-        a.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
-        a.addAction(UIAlertAction(title: "Done", style: .default) { _ in
-            if let name = a.textFields?.first?.text?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
-                do {
-                    try FileService.shared.createFolder(named: name, in: self.currentURL)
-                    self.loadItems()
-                } catch {
-                    self.logError("Create folder failed: \(error.localizedDescription)")
-                }
-            }
-        })
-        present(a, animated: true)
+        presentRename(icon: "folder.fill", iconColor: .systemBlue, placeholder: "Untitled Folder") { name in
+            try? FileService.shared.createFolder(named: name, in: self.currentURL)
+            self.loadItems()
+        }
     }
     
     private func promptNewFile() {
-        let a = UIAlertController(title: nil, message: nil, preferredStyle: .alert)
-        a.addTextField { $0.placeholder = "Untitled.txt" }
-        a.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
-        a.addAction(UIAlertAction(title: "Done", style: .default) { _ in
-            if let name = a.textFields?.first?.text?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
-                do {
-                    try FileService.shared.createEmptyFile(named: name, in: self.currentURL)
-                    self.loadItems()
-                } catch {
-                    self.logError("Create file failed: \(error.localizedDescription)")
-                }
-            }
-        })
-        present(a, animated: true)
+        presentRename(icon: "doc.fill", iconColor: .systemGray, placeholder: "Untitled.txt") { name in
+            try? FileService.shared.createEmptyFile(named: name, in: self.currentURL)
+            self.loadItems()
+        }
     }
     
     @objc private func copyTapped() {
@@ -469,17 +449,22 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
             flashMessage("请只选择一项")
             return
         }
-        let a = UIAlertController(title: nil, message: nil, preferredStyle: .alert)
-        a.addTextField { $0.text = item.name }
-        a.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
-        a.addAction(UIAlertAction(title: "Done", style: .default) { _ in
-            if let name = a.textFields?.first?.text?.trimmingCharacters(in: .whitespaces), !name.isEmpty, name != item.name {
+        let icon = item.isDirectory ? "folder.fill" : "doc.fill"
+        let color: UIColor = item.isDirectory ? .systemBlue : .systemGray
+        presentRename(icon: icon, iconColor: color, placeholder: item.name, initial: item.name) { name in
+            if name != item.name {
                 try? FileService.shared.rename(item: item, to: name)
                 self.selected.removeAll()
                 self.animateReload()
             }
-        })
-        present(a, animated: true)
+        }
+    }
+    
+    private func presentRename(icon: String, iconColor: UIColor, placeholder: String, initial: String = "", onDone: @escaping (String) -> Void) {
+        let vc = RenameViewController(icon: icon, iconColor: iconColor, placeholder: placeholder, initial: initial, onDone: onDone)
+        vc.modalPresentationStyle = .overFullScreen
+        vc.modalTransitionStyle = .crossDissolve
+        present(vc, animated: true)
     }
     
     @objc private func trashTapped() {
@@ -661,7 +646,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "FileCell", for: indexPath) as! FileCell
         let item = isSearching ? filteredItems[indexPath.row] : items[indexPath.row]
-        cell.configure(with: item)
+        cell.configure(with: item, editing: isEditingMode, selected: selected.contains(item))
         cell.onInfo = { [weak self] in self?.showInfo(item) }
         return cell
     }
@@ -1137,6 +1122,7 @@ class FileCell: UITableViewCell {
     private let sizeLabel = UILabel()
     private let infoBtn = UIButton(type: .system)
     private let chevron = UIImageView()
+    private let selectCircle = UIImageView()
     
     var onInfo: (() -> Void)?
     
@@ -1147,6 +1133,12 @@ class FileCell: UITableViewCell {
     required init?(coder: NSCoder) { fatalError() }
     
     private func setup() {
+        selectCircle.translatesAutoresizingMaskIntoConstraints = false
+        selectCircle.image = UIImage(systemName: "circle")
+        selectCircle.tintColor = .systemGray3
+        selectCircle.contentMode = .scaleAspectFit
+        selectCircle.isHidden = true
+        
         icon.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.font = .systemFont(ofSize: 16)
@@ -1165,47 +1157,61 @@ class FileCell: UITableViewCell {
         chevron.tintColor = .tertiaryLabel
         chevron.contentMode = .scaleAspectFit
         
-        [icon, nameLabel, dateLabel, sizeLabel, infoBtn, chevron].forEach { contentView.addSubview($0) }
+        [selectCircle, icon, nameLabel, dateLabel, sizeLabel, infoBtn, chevron].forEach { contentView.addSubview($0) }
         
         NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            icon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 30),
-            icon.heightAnchor.constraint(equalToConstant: 30),
+            selectCircle.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            selectCircle.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            selectCircle.widthAnchor.constraint(equalToConstant: 22),
+            selectCircle.heightAnchor.constraint(equalToConstant: 22),
             
-            nameLabel.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
-            nameLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 7),
+            icon.leadingAnchor.constraint(equalTo: selectCircle.trailingAnchor, constant: 10),
+            icon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 28),
+            icon.heightAnchor.constraint(equalToConstant: 28),
+            
+            nameLabel.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
+            nameLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
             nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: sizeLabel.leadingAnchor, constant: -8),
             
             dateLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
             dateLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 1),
             
-            sizeLabel.trailingAnchor.constraint(equalTo: infoBtn.leadingAnchor, constant: -6),
+            sizeLabel.trailingAnchor.constraint(equalTo: infoBtn.leadingAnchor, constant: -4),
             sizeLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            sizeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 50),
+            sizeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 44),
             
             infoBtn.trailingAnchor.constraint(equalTo: chevron.leadingAnchor, constant: -2),
             infoBtn.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            infoBtn.widthAnchor.constraint(equalToConstant: 26),
-            infoBtn.heightAnchor.constraint(equalToConstant: 26),
+            infoBtn.widthAnchor.constraint(equalToConstant: 24),
+            infoBtn.heightAnchor.constraint(equalToConstant: 24),
             
             chevron.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -10),
             chevron.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            chevron.widthAnchor.constraint(equalToConstant: 10),
-            chevron.heightAnchor.constraint(equalToConstant: 14)
+            chevron.widthAnchor.constraint(equalToConstant: 8),
+            chevron.heightAnchor.constraint(equalToConstant: 12)
         ])
     }
     
-    func configure(with item: FileItem) {
+    func configure(with item: FileItem, editing: Bool, selected: Bool) {
         nameLabel.text = item.name
         dateLabel.text = item.displayDate
         sizeLabel.text = item.isDirectory ? "" : item.displaySize
         
         let (symbol, color) = iconFor(item)
-        let cfg = UIImage.SymbolConfiguration(pointSize: 22)
+        let cfg = UIImage.SymbolConfiguration(pointSize: 20)
         icon.image = UIImage(systemName: symbol, withConfiguration: cfg)
         icon.tintColor = color
-        chevron.isHidden = !item.isDirectory
+        chevron.isHidden = !item.isDirectory || editing
+        
+        selectCircle.isHidden = !editing
+        if editing {
+            selectCircle.image = UIImage(systemName: selected ? "checkmark.circle.fill" : "circle")
+            selectCircle.tintColor = selected ? .systemBlue : .systemGray3
+            contentView.backgroundColor = selected ? UIColor.systemYellow.withAlphaComponent(0.25) : .clear
+        } else {
+            contentView.backgroundColor = .clear
+        }
     }
     
     private func iconFor(_ item: FileItem) -> (String, UIColor) {
@@ -1249,5 +1255,114 @@ extension UIButton {
             bottom: -(totalHeight - titleSize.height),
             right: 0
         )
+    }
+}
+
+// 仿 Filza 的新建/重命名弹层
+class RenameViewController: UIViewController, UITextFieldDelegate {
+    private let iconName: String
+    private let iconColor: UIColor
+    private let placeholder: String
+    private let initial: String
+    private let onDone: (String) -> Void
+    
+    private let iconView = UIImageView()
+    private let textField = UITextField()
+    private let bar = UIView()
+    
+    init(icon: String, iconColor: UIColor, placeholder: String, initial: String, onDone: @escaping (String) -> Void) {
+        self.iconName = icon
+        self.iconColor = iconColor
+        self.placeholder = placeholder
+        self.initial = initial
+        self.onDone = onDone
+        super.init(nibName: nil, bundle: nil)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+        
+        // 大图标居中
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        let cfg = UIImage.SymbolConfiguration(pointSize: 64, weight: .regular)
+        iconView.image = UIImage(systemName: iconName, withConfiguration: cfg)
+        iconView.tintColor = iconColor
+        iconView.contentMode = .scaleAspectFit
+        view.addSubview(iconView)
+        
+        // 底部输入条
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        bar.backgroundColor = .secondarySystemBackground
+        view.addSubview(bar)
+        
+        let cancel = UIButton(type: .system)
+        cancel.translatesAutoresizingMaskIntoConstraints = false
+        cancel.setTitle(NSLocalizedString("Cancel", comment: ""), for: .normal)
+        cancel.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+        bar.addSubview(cancel)
+        
+        textField.translatesAutoresizingMaskIntoConstraints = false
+        textField.placeholder = placeholder
+        textField.text = initial
+        textField.textAlignment = .center
+        textField.font = .systemFont(ofSize: 17)
+        textField.delegate = self
+        textField.clearButtonMode = .whileEditing
+        textField.returnKeyType = .done
+        bar.addSubview(textField)
+        
+        let done = UIButton(type: .system)
+        done.translatesAutoresizingMaskIntoConstraints = false
+        done.setTitle(NSLocalizedString("Done", comment: ""), for: .normal)
+        done.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
+        done.addTarget(self, action: #selector(doneTapped), for: .touchUpInside)
+        bar.addSubview(done)
+        
+        NSLayoutConstraint.activate([
+            iconView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -80),
+            iconView.widthAnchor.constraint(equalToConstant: 80),
+            iconView.heightAnchor.constraint(equalToConstant: 80),
+            
+            bar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bar.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+            bar.heightAnchor.constraint(equalToConstant: 48),
+            
+            cancel.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 16),
+            cancel.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            
+            done.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -16),
+            done.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            
+            textField.leadingAnchor.constraint(equalTo: cancel.trailingAnchor, constant: 8),
+            textField.trailingAnchor.constraint(equalTo: done.leadingAnchor, constant: -8),
+            textField.centerYAnchor.constraint(equalTo: bar.centerYAnchor)
+        ])
+    }
+    
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        textField.becomeFirstResponder()
+        if !initial.isEmpty {
+            textField.selectAll(nil)
+        }
+    }
+    
+    @objc private func cancelTapped() { dismiss(animated: true) }
+    
+    @objc private func doneTapped() {
+        let name = textField.text?.trimmingCharacters(in: .whitespaces) ?? ""
+        if !name.isEmpty {
+            onDone(name)
+        }
+        dismiss(animated: true)
+    }
+    
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        doneTapped()
+        return true
     }
 }
