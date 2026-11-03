@@ -149,12 +149,15 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
             header.addSubview(search)
         }
         
+        let leftInset: CGFloat = 40
+        let rightInset: CGFloat = isEditingMode ? 40 : 68
+        let colW = max(60, (header.bounds.width - leftInset - rightInset) / 3)
         let name = makeSortButton(NSLocalizedString("Name", comment: ""), tag: 0)
-        name.frame = CGRect(x: 48, y: 4, width: 78, height: 28)
+        name.frame = CGRect(x: leftInset, y: 4, width: colW, height: 28)
         let date = makeSortButton(NSLocalizedString("Date", comment: ""), tag: 1)
-        date.frame = CGRect(x: 132, y: 4, width: 64, height: 28)
+        date.frame = CGRect(x: leftInset + colW, y: 4, width: colW, height: 28)
         let size = makeSortButton(NSLocalizedString("Size", comment: ""), tag: 2)
-        size.frame = CGRect(x: 202, y: 4, width: 64, height: 28)
+        size.frame = CGRect(x: leftInset + colW * 2, y: 4, width: colW, height: 28)
         header.addSubview(name)
         header.addSubview(date)
         header.addSubview(size)
@@ -204,6 +207,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         let b = UIButton(type: .system)
         b.setTitle(title, for: .normal)
         b.titleLabel?.font = .systemFont(ofSize: 14)
+        b.contentHorizontalAlignment = .center
         b.tag = tag
         b.addTarget(self, action: #selector(sortTapped(_:)), for: .touchUpInside)
         return b
@@ -224,7 +228,9 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
                 b.tintColor = .tertiaryLabel
             }
             b.semanticContentAttribute = .forceLeftToRight
-            b.imageEdgeInsets = UIEdgeInsets(top: 0, left: -2, bottom: 0, right: 2)
+            b.contentHorizontalAlignment = .center
+            b.imageEdgeInsets = .zero
+            b.titleEdgeInsets = UIEdgeInsets(top: 0, left: 3, bottom: 0, right: 0)
         }
     }
     
@@ -346,7 +352,55 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     
     @objc private func goBack() {
         if isRoot { return }
-        onGoBack?()
+        navigationController?.popViewController(animated: true)
+    }
+
+    static func displayTitle(for url: URL) -> String {
+        let u = url.standardizedFileURL
+        if u == FileService.shared.documentsURL.standardizedFileURL { return "/" }
+        if u == FileService.shared.trashURL.standardizedFileURL { return "Trash" }
+        if let g = FileService.shared.groupURL?.standardizedFileURL, u == g { return "[App Group]" }
+        if u == FileService.shared.cachesURL.standardizedFileURL { return "[App Caches]" }
+        return u.lastPathComponent
+    }
+
+    static func makeLinkedController(url: URL) -> FileListViewController {
+        let vc = FileListViewController(url: url)
+        let parent = url.standardizedFileURL.deletingLastPathComponent()
+        vc.parentName = displayTitle(for: parent)
+        return vc
+    }
+
+    private func updateActiveTab(_ url: URL) {
+        let idx = FileListViewController.currentTabIndex
+        if idx >= 0 && idx < FileListViewController.tabs.count {
+            FileListViewController.tabs[idx] = url
+        }
+    }
+
+    private func openDirectory(_ url: URL) {
+        guard let nav = navigationController else { return }
+        recordHistory(url)
+        let child = FileListViewController.makeLinkedController(url: url)
+        child.parentName = FileListViewController.displayTitle(for: currentURL)
+        nav.pushViewController(child, animated: true)
+        updateActiveTab(url)
+    }
+
+    func jumpTo(_ url: URL) {
+        guard let nav = navigationController else { return }
+        recordHistory(url)
+        let vc = FileListViewController.makeLinkedController(url: url)
+        nav.setViewControllers([vc], animated: false)
+        updateActiveTab(url)
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        updateActiveTab(currentURL)
+        navigationController?.isToolbarHidden = false
+        navigationController?.interactivePopGestureRecognizer?.isEnabled = !isRoot
+        navigationController?.interactivePopGestureRecognizer?.delegate = self
     }
     
     @objc private func toggleEdit() {
@@ -530,7 +584,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     @objc private func historyTapped() {
         let vc = PathListViewController(title: NSLocalizedString("History", comment: ""), paths: FileListViewController.history) { [weak self] url in
             self?.dismiss(animated: true) {
-                self?.onNavigate?(url)
+                self?.jumpTo(url)
             }
         }
         let nav = UINavigationController(rootViewController: vc)
@@ -540,7 +594,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     @objc private func favoritesTapped() {
         let vc = FavoritesViewController(currentURL: currentURL) { [weak self] url in
             self?.dismiss(animated: true) {
-                self?.onNavigate?(url)
+                self?.jumpTo(url)
             }
         }
         let nav = UINavigationController(rootViewController: vc)
@@ -559,7 +613,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
                 FileListViewController.currentTabIndex = idx
             }
             self?.dismiss(animated: true) {
-                self?.onNavigate?(url)
+                self?.jumpTo(url)
             }
         } onClose: { url in
             if let idx = FileListViewController.tabs.firstIndex(of: url) {
@@ -706,8 +760,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         tableView.deselectRow(at: indexPath, animated: true)
         if item.isDirectory {
             if FileService.shared.isAllowed(item.url) {
-                recordHistory(item.url)
-                onNavigate?(item.url)
+                openDirectory(item.url)
             }
         } else {
             openFile(item)
@@ -1033,7 +1086,7 @@ class TabPreviewCell: UICollectionViewCell {
     required init?(coder: NSCoder) { fatalError() }
     
     func configure(url: URL, isCurrent: Bool) {
-        titleLabel.text = url.lastPathComponent.isEmpty ? "/" : url.lastPathComponent
+        titleLabel.text = FileListViewController.displayTitle(for: url)
         card.layer.borderWidth = isCurrent ? 2 : 0
         card.layer.borderColor = isCurrent ? UIColor.systemBlue.cgColor : nil
         
@@ -1289,6 +1342,12 @@ class FileCell: UITableViewCell {
     }
     
     @objc private func infoTap() { onInfo?() }
+}
+
+extension FileListViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        !isRoot && (navigationController?.viewControllers.count ?? 0) > 1
+    }
 }
 
 extension UIButton {
