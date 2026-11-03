@@ -128,30 +128,71 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     }
     
     private func setupSortHeader() {
-        let header = UIView(frame: CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 40))
-        header.backgroundColor = .systemGroupedBackground
+        let header = UIView(frame: CGRect(x: 0, y: 0, width: max(tableView.bounds.width, UIScreen.main.bounds.width), height: 36))
+        header.backgroundColor = UIColor(white: 0.96, alpha: 1)
         
-        let search = UIButton(type: .system)
-        search.setImage(UIImage(systemName: "magnifyingglass"), for: .normal)
-        search.frame = CGRect(x: 10, y: 8, width: 28, height: 24)
-        search.addTarget(self, action: #selector(focusSearch), for: .touchUpInside)
+        if isEditingMode {
+            let all = UIButton(type: .system)
+            all.tag = 99
+            let allSelected = !items.isEmpty && selected.count == items.count
+            all.setImage(UIImage(systemName: allSelected ? "checkmark.circle.fill" : "circle"), for: .normal)
+            all.tintColor = allSelected ? .systemBlue : .systemGray3
+            all.frame = CGRect(x: 10, y: 6, width: 26, height: 24)
+            all.addTarget(self, action: #selector(selectAllTapped), for: .touchUpInside)
+            header.addSubview(all)
+        } else {
+            let search = UIButton(type: .system)
+            search.setImage(UIImage(systemName: "magnifyingglass"), for: .normal)
+            search.tintColor = .label
+            search.frame = CGRect(x: 8, y: 6, width: 28, height: 24)
+            search.addTarget(self, action: #selector(focusSearch), for: .touchUpInside)
+            header.addSubview(search)
+        }
         
         let name = makeSortButton(NSLocalizedString("Name", comment: ""), tag: 0)
-        name.frame = CGRect(x: 50, y: 6, width: 70, height: 28)
-        
+        name.frame = CGRect(x: 48, y: 4, width: 78, height: 28)
         let date = makeSortButton(NSLocalizedString("Date", comment: ""), tag: 1)
-        date.frame = CGRect(x: 130, y: 6, width: 60, height: 28)
-        
+        date.frame = CGRect(x: 132, y: 4, width: 64, height: 28)
         let size = makeSortButton(NSLocalizedString("Size", comment: ""), tag: 2)
-        size.frame = CGRect(x: 200, y: 6, width: 60, height: 28)
-        
-        header.addSubview(search)
+        size.frame = CGRect(x: 202, y: 4, width: 64, height: 28)
         header.addSubview(name)
         header.addSubview(date)
         header.addSubview(size)
         
+        let right = UIButton(type: .system)
+        right.tintColor = .systemBlue
+        if isEditingMode {
+            right.setImage(UIImage(systemName: "tag"), for: .normal)
+        } else {
+            right.setImage(UIImage(systemName: "rectangle.split.3x1"), for: .normal)
+        }
+        right.frame = CGRect(x: header.bounds.width - 36, y: 6, width: 28, height: 24)
+        right.autoresizingMask = [.flexibleLeftMargin]
+        header.addSubview(right)
+        
+        if !isEditingMode {
+            let backish = UIButton(type: .system)
+            backish.setImage(UIImage(systemName: "chevron.left"), for: .normal)
+            backish.tintColor = .systemBlue
+            backish.frame = CGRect(x: header.bounds.width - 64, y: 6, width: 24, height: 24)
+            backish.autoresizingMask = [.flexibleLeftMargin]
+            header.addSubview(backish)
+        }
+        
         tableView.tableHeaderView = header
         updateSortButtons()
+    }
+    
+    @objc private func selectAllTapped() {
+        if selected.count == items.count {
+            selected.removeAll()
+        } else {
+            selected = Set(items)
+        }
+        tableView.reloadData()
+        setupSortHeader()
+        setupBottomBar(editing: true)
+        updateSelectedCount()
     }
     
     @objc private func focusSearch() {
@@ -173,12 +214,17 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         for v in header.subviews {
             guard let b = v as? UIButton, b.tag >= 0 && b.tag <= 2 else { continue }
             let active = (b.tag == 0 && sortMode == .name) || (b.tag == 1 && sortMode == .date) || (b.tag == 2 && sortMode == .size)
-            b.setTitleColor(active ? .systemBlue : .label, for: .normal)
+            b.setTitleColor(active ? .systemBlue : .secondaryLabel, for: .normal)
+            let cfg = UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)
             if active {
-                b.setImage(UIImage(systemName: "chevron.up"), for: .normal)
+                b.setImage(UIImage(systemName: "chevron.up", withConfiguration: cfg), for: .normal)
+                b.tintColor = .systemBlue
             } else {
-                b.setImage(nil, for: .normal)
+                b.setImage(UIImage(systemName: "chevron.up", withConfiguration: cfg), for: .normal)
+                b.tintColor = .tertiaryLabel
             }
+            b.semanticContentAttribute = .forceLeftToRight
+            b.imageEdgeInsets = UIEdgeInsets(top: 0, left: -2, bottom: 0, right: 2)
         }
     }
     
@@ -212,11 +258,12 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     private func setupBottomBar(editing: Bool) {
         let flex = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
         if editing {
-            let copy = makeToolbarItem(title: NSLocalizedString("Copy", comment: ""), image: "doc.on.doc", action: #selector(copyTapped))
-            let move = makeToolbarItem(title: NSLocalizedString("Move", comment: ""), image: "folder", action: #selector(moveTapped))
-            let rename = makeToolbarItem(title: NSLocalizedString("Rename", comment: ""), image: "pencil", action: #selector(renameTapped))
-            let trash = makeToolbarItem(title: NSLocalizedString("Trash", comment: ""), image: "trash", action: #selector(trashTapped))
-            let more = makeToolbarItem(title: NSLocalizedString("More", comment: ""), image: "square.and.arrow.up", action: #selector(moreTapped))
+            let on = !selected.isEmpty
+            let copy = makeToolbarItem(title: NSLocalizedString("Copy", comment: ""), image: "doc.on.doc", action: #selector(copyTapped), enabled: on)
+            let move = makeToolbarItem(title: NSLocalizedString("Move", comment: ""), image: "folder", action: #selector(moveTapped), enabled: on)
+            let rename = makeToolbarItem(title: NSLocalizedString("Rename", comment: ""), image: "pencil", action: #selector(renameTapped), enabled: selected.count == 1)
+            let trash = makeToolbarItem(title: NSLocalizedString("Trash", comment: ""), image: "trash", action: #selector(trashTapped), enabled: on)
+            let more = makeToolbarItem(title: NSLocalizedString("More", comment: ""), image: "square.and.arrow.up", action: #selector(moreTapped), enabled: on)
             toolbarItems = [copy, flex, move, flex, rename, flex, trash, flex, more]
         } else {
             let paste = UIBarButtonItem(image: UIImage(systemName: "doc.on.clipboard"), style: .plain, target: self, action: #selector(pasteTapped))
@@ -227,21 +274,24 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
             toolbarItems = [paste, flex, history, flex, star, flex, gear, flex, tabs]
         }
         navigationController?.isToolbarHidden = false
-        navigationController?.toolbar.barTintColor = .secondarySystemBackground
+        navigationController?.toolbar.barTintColor = .systemBackground
+        navigationController?.toolbar.backgroundColor = .systemBackground
         navigationController?.toolbar.isTranslucent = false
     }
     
-    private func makeToolbarItem(title: String, image: String, action: Selector) -> UIBarButtonItem {
+    private func makeToolbarItem(title: String, image: String, action: Selector, enabled: Bool = true) -> UIBarButtonItem {
         let btn = UIButton(type: .system)
         let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
         btn.setImage(UIImage(systemName: image, withConfiguration: config), for: .normal)
         btn.setTitle(title, for: .normal)
-        btn.titleLabel?.font = .systemFont(ofSize: 9)
-        btn.tintColor = .systemBlue
-        btn.setTitleColor(.systemBlue, for: .normal)
-        btn.alignVertical(spacing: 1)
+        btn.titleLabel?.font = .systemFont(ofSize: 10)
+        let color: UIColor = enabled ? .systemBlue : .systemGray3
+        btn.tintColor = color
+        btn.setTitleColor(color, for: .normal)
+        btn.isEnabled = enabled
+        btn.alignVertical(spacing: 2)
         btn.addTarget(self, action: action, for: .touchUpInside)
-        btn.frame = CGRect(x: 0, y: 0, width: 50, height: 44)
+        btn.frame = CGRect(x: 0, y: 0, width: 56, height: 46)
         return UIBarButtonItem(customView: btn)
     }
     
@@ -259,7 +309,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         let (used, total) = deviceStorage()
         let countText = items.isEmpty ? "Empty" : "\(items.count) item(s)."
         label.text = "\(used)/\(total)GB   \(countText)"
-        label.font = .systemFont(ofSize: 12)
+        label.font = .italicSystemFont(ofSize: 12)
         label.textColor = .secondaryLabel
         label.textAlignment = .right
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -301,9 +351,6 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     
     @objc private func toggleEdit() {
         isEditingMode.toggle()
-        UIView.animate(withDuration: 0.25) {
-            self.tableView.setEditing(self.isEditingMode, animated: true)
-        }
         if isEditingMode {
             navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add, target: self, action: #selector(addTapped))
             navigationItem.rightBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Done", comment: ""), style: .done, target: self, action: #selector(toggleEdit))
@@ -311,8 +358,10 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
             setupNavigation()
             selected.removeAll()
         }
+        setupSortHeader()
         setupBottomBar(editing: isEditingMode)
         updateSelectedCount()
+        tableView.reloadData()
     }
     
     @objc private func sortTapped(_ sender: UIButton) {
@@ -345,33 +394,26 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     }
     
     private func showCreateSheet() {
-        let sheet = UIAlertController(title: NSLocalizedString("More", comment: ""), message: nil, preferredStyle: .actionSheet)
-        
-        let newText = UIAlertAction(title: NSLocalizedString("New Text", comment: ""), style: .default) { _ in self.promptNewFile() }
-        newText.setValue(UIImage(systemName: "doc.badge.plus"), forKey: "image")
-        
-        let newFolder = UIAlertAction(title: NSLocalizedString("New Folder", comment: ""), style: .default) { _ in self.promptNewFolder() }
-        newFolder.setValue(UIImage(systemName: "folder.badge.plus"), forKey: "image")
-        
-        sheet.addAction(newText)
-        sheet.addAction(newFolder)
-        sheet.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
-        
-        if let p = sheet.popoverPresentationController {
-            p.barButtonItem = navigationItem.leftBarButtonItem
+        let vc = CreateSheetViewController()
+        vc.onNewText = { [weak self] in self?.promptNewFile() }
+        vc.onNewFolder = { [weak self] in self?.promptNewFolder() }
+        vc.modalPresentationStyle = .pageSheet
+        if let sheet = vc.sheetPresentationController {
+            sheet.detents = [.medium()]
+            sheet.prefersGrabberVisible = true
         }
-        present(sheet, animated: true)
+        present(vc, animated: true)
     }
     
     private func promptNewFolder() {
-        presentRename(icon: "folder.fill", iconColor: .systemBlue, placeholder: "Untitled Folder") { name in
+        presentRename(icon: "folder.fill", iconColor: .systemBlue, placeholder: NSLocalizedString("Untitled Folder", comment: "")) { name in
             try? FileService.shared.createFolder(named: name, in: self.currentURL)
             self.loadItems()
         }
     }
     
     private func promptNewFile() {
-        presentRename(icon: "doc.fill", iconColor: .systemGray, placeholder: "Untitled.txt") { name in
+        presentRename(icon: "doc.fill", iconColor: .systemGray, placeholder: NSLocalizedString("Untitled.txt", comment: "")) { name in
             try? FileService.shared.createEmptyFile(named: name, in: self.currentURL)
             self.loadItems()
         }
@@ -462,7 +504,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     
     private func presentRename(icon: String, iconColor: UIColor, placeholder: String, initial: String = "", onDone: @escaping (String) -> Void) {
         let vc = RenameViewController(icon: icon, iconColor: iconColor, placeholder: placeholder, initial: initial, onDone: onDone)
-        vc.modalPresentationStyle = .overFullScreen
+        vc.modalPresentationStyle = .fullScreen
         vc.modalTransitionStyle = .crossDissolve
         present(vc, animated: true)
     }
@@ -654,7 +696,10 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let item = isSearching ? filteredItems[indexPath.row] : items[indexPath.row]
         if isEditingMode {
-            selected.insert(item)
+            if selected.contains(item) { selected.remove(item) } else { selected.insert(item) }
+            tableView.reloadRows(at: [indexPath], with: .none)
+            setupBottomBar(editing: true)
+            setupSortHeader()
             updateSelectedCount()
             return
         }
@@ -673,6 +718,8 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         if isEditingMode {
             let item = isSearching ? filteredItems[indexPath.row] : items[indexPath.row]
             selected.remove(item)
+            tableView.reloadRows(at: [indexPath], with: .none)
+            setupBottomBar(editing: true)
             updateSelectedCount()
         }
     }
@@ -1123,11 +1170,14 @@ class FileCell: UITableViewCell {
     private let infoBtn = UIButton(type: .system)
     private let chevron = UIImageView()
     private let selectCircle = UIImageView()
+    private var circleWidth: NSLayoutConstraint!
+    private var iconLead: NSLayoutConstraint!
     
     var onInfo: (() -> Void)?
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
         setup()
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -1159,13 +1209,16 @@ class FileCell: UITableViewCell {
         
         [selectCircle, icon, nameLabel, dateLabel, sizeLabel, infoBtn, chevron].forEach { contentView.addSubview($0) }
         
+        circleWidth = selectCircle.widthAnchor.constraint(equalToConstant: 0)
+        iconLead = icon.leadingAnchor.constraint(equalTo: selectCircle.trailingAnchor, constant: 0)
+        
         NSLayoutConstraint.activate([
             selectCircle.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
             selectCircle.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            selectCircle.widthAnchor.constraint(equalToConstant: 22),
+            circleWidth,
             selectCircle.heightAnchor.constraint(equalToConstant: 22),
             
-            icon.leadingAnchor.constraint(equalTo: selectCircle.trailingAnchor, constant: 10),
+            iconLead,
             icon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 28),
             icon.heightAnchor.constraint(equalToConstant: 28),
@@ -1202,15 +1255,19 @@ class FileCell: UITableViewCell {
         let cfg = UIImage.SymbolConfiguration(pointSize: 20)
         icon.image = UIImage(systemName: symbol, withConfiguration: cfg)
         icon.tintColor = color
+        infoBtn.isHidden = editing
         chevron.isHidden = !item.isDirectory || editing
+        sizeLabel.isHidden = item.isDirectory
         
         selectCircle.isHidden = !editing
+        circleWidth.constant = editing ? 22 : 0
+        iconLead.constant = editing ? 8 : 0
         if editing {
             selectCircle.image = UIImage(systemName: selected ? "checkmark.circle.fill" : "circle")
             selectCircle.tintColor = selected ? .systemBlue : .systemGray3
-            contentView.backgroundColor = selected ? UIColor.systemYellow.withAlphaComponent(0.25) : .clear
+            contentView.backgroundColor = selected ? UIColor(red: 1, green: 0.98, blue: 0.72, alpha: 1) : .systemBackground
         } else {
-            contentView.backgroundColor = .clear
+            contentView.backgroundColor = .systemBackground
         }
     }
     
@@ -1269,6 +1326,7 @@ class RenameViewController: UIViewController, UITextFieldDelegate {
     private let iconView = UIImageView()
     private let textField = UITextField()
     private let bar = UIView()
+    private var barBottom: NSLayoutConstraint!
     
     init(icon: String, iconColor: UIColor, placeholder: String, initial: String, onDone: @escaping (String) -> Void) {
         self.iconName = icon
@@ -1284,7 +1342,6 @@ class RenameViewController: UIViewController, UITextFieldDelegate {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         
-        // 大图标居中
         iconView.translatesAutoresizingMaskIntoConstraints = false
         let cfg = UIImage.SymbolConfiguration(pointSize: 64, weight: .regular)
         iconView.image = UIImage(systemName: iconName, withConfiguration: cfg)
@@ -1292,7 +1349,6 @@ class RenameViewController: UIViewController, UITextFieldDelegate {
         iconView.contentMode = .scaleAspectFit
         view.addSubview(iconView)
         
-        // 底部输入条
         bar.translatesAutoresizingMaskIntoConstraints = false
         bar.backgroundColor = .secondarySystemBackground
         view.addSubview(bar)
@@ -1320,44 +1376,60 @@ class RenameViewController: UIViewController, UITextFieldDelegate {
         done.addTarget(self, action: #selector(doneTapped), for: .touchUpInside)
         bar.addSubview(done)
         
+        barBottom = bar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
+        
         NSLayoutConstraint.activate([
             iconView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            iconView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -80),
-            iconView.widthAnchor.constraint(equalToConstant: 80),
-            iconView.heightAnchor.constraint(equalToConstant: 80),
+            iconView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -60),
+            iconView.widthAnchor.constraint(equalToConstant: 72),
+            iconView.heightAnchor.constraint(equalToConstant: 72),
             
             bar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bar.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
-            bar.heightAnchor.constraint(equalToConstant: 48),
+            barBottom,
+            bar.heightAnchor.constraint(equalToConstant: 50),
             
             cancel.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 16),
             cancel.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            cancel.widthAnchor.constraint(equalToConstant: 60),
             
             done.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -16),
             done.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            done.widthAnchor.constraint(equalToConstant: 60),
             
             textField.leadingAnchor.constraint(equalTo: cancel.trailingAnchor, constant: 8),
             textField.trailingAnchor.constraint(equalTo: done.leadingAnchor, constant: -8),
-            textField.centerYAnchor.constraint(equalTo: bar.centerYAnchor)
+            textField.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            textField.heightAnchor.constraint(equalToConstant: 36)
         ])
+        
+        NotificationCenter.default.addObserver(self, selector: #selector(kbShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(kbHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         textField.becomeFirstResponder()
-        if !initial.isEmpty {
-            textField.selectAll(nil)
-        }
+        if !initial.isEmpty { textField.selectAll(nil) }
+    }
+    
+    @objc private func kbShow(_ n: Notification) {
+        guard let frame = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
+        let height = frame.height - view.safeAreaInsets.bottom
+        barBottom.constant = -height
+        UIView.animate(withDuration: 0.25) { self.view.layoutIfNeeded() }
+    }
+    
+    @objc private func kbHide(_ n: Notification) {
+        barBottom.constant = 0
+        UIView.animate(withDuration: 0.25) { self.view.layoutIfNeeded() }
     }
     
     @objc private func cancelTapped() { dismiss(animated: true) }
     
     @objc private func doneTapped() {
         let name = textField.text?.trimmingCharacters(in: .whitespaces) ?? ""
-        if !name.isEmpty {
-            onDone(name)
-        }
+        if !name.isEmpty { onDone(name) }
         dismiss(animated: true)
     }
     
@@ -1365,4 +1437,111 @@ class RenameViewController: UIViewController, UITextFieldDelegate {
         doneTapped()
         return true
     }
+}
+
+// 仿 Filza 的新建菜单（大图标卡片）
+class CreateSheetViewController: UIViewController {
+    var onNewText: (() -> Void)?
+    var onNewFolder: (() -> Void)?
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemGroupedBackground
+        
+        let card = UIView()
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.backgroundColor = .systemBackground
+        card.layer.cornerRadius = 14
+        view.addSubview(card)
+        
+        let title = UILabel()
+        title.translatesAutoresizingMaskIntoConstraints = false
+        title.text = NSLocalizedString("More", comment: "")
+        title.font = .systemFont(ofSize: 13)
+        title.textColor = .secondaryLabel
+        title.textAlignment = .center
+        card.addSubview(title)
+        
+        let stack = UIStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .horizontal
+        stack.distribution = .equalSpacing
+        stack.alignment = .center
+        card.addSubview(stack)
+        
+        stack.addArrangedSubview(makeIconButton(icon: "doc.badge.plus", title: NSLocalizedString("New Text", comment: ""), action: #selector(newText)))
+        stack.addArrangedSubview(makeIconButton(icon: "folder.badge.plus", title: NSLocalizedString("New Folder", comment: ""), action: #selector(newFolder)))
+        stack.addArrangedSubview(makeIconButton(icon: "link.badge.plus", title: NSLocalizedString("Shortcut", comment: ""), action: #selector(shortcut)))
+        
+        let cancel = UIButton(type: .system)
+        cancel.translatesAutoresizingMaskIntoConstraints = false
+        cancel.setTitle(NSLocalizedString("Cancel", comment: ""), for: .normal)
+        cancel.titleLabel?.font = .systemFont(ofSize: 20, weight: .semibold)
+        cancel.backgroundColor = .systemBackground
+        cancel.layer.cornerRadius = 14
+        cancel.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+        view.addSubview(cancel)
+        
+        NSLayoutConstraint.activate([
+            card.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            card.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            card.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            card.heightAnchor.constraint(equalToConstant: 140),
+            
+            title.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
+            title.centerXAnchor.constraint(equalTo: card.centerXAnchor),
+            
+            stack.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 12),
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -24),
+            
+            cancel.topAnchor.constraint(equalTo: card.bottomAnchor, constant: 10),
+            cancel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            cancel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            cancel.heightAnchor.constraint(equalToConstant: 56)
+        ])
+    }
+    
+    private func makeIconButton(icon: String, title: String, action: Selector) -> UIView {
+        let v = UIView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        
+        let btn = UIButton(type: .system)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        let cfg = UIImage.SymbolConfiguration(pointSize: 28)
+        btn.setImage(UIImage(systemName: icon, withConfiguration: cfg), for: .normal)
+        btn.tintColor = .label
+        btn.backgroundColor = UIColor.systemGray6
+        btn.layer.cornerRadius = 28
+        btn.addTarget(self, action: action, for: .touchUpInside)
+        
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = title
+        label.font = .systemFont(ofSize: 12)
+        label.textAlignment = .center
+        label.numberOfLines = 2
+        
+        v.addSubview(btn)
+        v.addSubview(label)
+        
+        NSLayoutConstraint.activate([
+            btn.topAnchor.constraint(equalTo: v.topAnchor),
+            btn.centerXAnchor.constraint(equalTo: v.centerXAnchor),
+            btn.widthAnchor.constraint(equalToConstant: 56),
+            btn.heightAnchor.constraint(equalToConstant: 56),
+            
+            label.topAnchor.constraint(equalTo: btn.bottomAnchor, constant: 6),
+            label.leadingAnchor.constraint(equalTo: v.leadingAnchor),
+            label.trailingAnchor.constraint(equalTo: v.trailingAnchor),
+            label.bottomAnchor.constraint(equalTo: v.bottomAnchor),
+            v.widthAnchor.constraint(equalToConstant: 80)
+        ])
+        return v
+    }
+    
+    @objc private func newText() { dismiss(animated: true) { self.onNewText?() } }
+    @objc private func newFolder() { dismiss(animated: true) { self.onNewFolder?() } }
+    @objc private func shortcut() { dismiss(animated: true) }
+    @objc private func cancelTapped() { dismiss(animated: true) }
 }

@@ -17,8 +17,8 @@ struct FileItem: Identifiable, Hashable {
     var displayDate: String {
         guard let date = modificationDate else { return "--" }
         let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
+        formatter.locale = Locale.current
+        formatter.dateFormat = "MMM dd, yyyy hh:mm a"
         return formatter.string(from: date)
     }
 }
