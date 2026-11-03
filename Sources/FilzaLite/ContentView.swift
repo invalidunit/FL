@@ -27,11 +27,15 @@ struct ContentView: View {
             },
             onGoBack: {
                 let parent = currentURL.deletingLastPathComponent()
-                if parent.pathComponents.count >= documentsURL.pathComponents.count {
+                // 只要父目录是允许的（Documents 下、App Group 下、Trash 下），就允许返回
+                if FileService.shared.isAllowed(parent) {
                     currentURL = parent
-                    // 回到 Documents 时显示 /
                     if parent.standardizedFileURL == documentsURL.standardizedFileURL {
                         parentName = "/"
+                    } else if parent.standardizedFileURL == FileService.shared.trashURL.standardizedFileURL {
+                        parentName = "Trash"
+                    } else if parent.standardizedFileURL == FileService.shared.groupURL?.standardizedFileURL {
+                        parentName = "[App Group]"
                     } else {
                         parentName = parent.deletingLastPathComponent().lastPathComponent
                     }

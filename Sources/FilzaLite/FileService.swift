@@ -33,6 +33,10 @@ class FileService {
         let docs = documentsURL.standardizedFileURL.path
         let target = url.standardizedFileURL.path
         if target == docs || target.hasPrefix(docs + "/") { return true }
+        
+        let trash = trashURL.standardizedFileURL.path
+        if target == trash || target.hasPrefix(trash + "/") { return true }
+        
         if let g = groupURL {
             let gp = g.standardizedFileURL.path
             if target == gp || target.hasPrefix(gp + "/") { return true }

@@ -728,7 +728,7 @@ class FavoritesViewController: UITableViewController {
         if indexPath.section == 0 {
             let url = favorites[indexPath.row]
             cell.textLabel?.text = url.lastPathComponent
-            cell.detailTextLabel?.text = url.path
+            cell.detailTextLabel?.text = displayPath(for: url)
             cell.imageView?.image = UIImage(systemName: "star")
         } else {
             let item = systemItems[indexPath.row]
@@ -747,6 +747,26 @@ class FavoritesViewController: UITableViewController {
                 onSelect?(url)
             }
         }
+    }
+    
+    /// 把路径显示成以 Documents 为 / 的形式
+    private func displayPath(for url: URL) -> String {
+        let docs = FileService.shared.documentsURL.standardizedFileURL
+        let target = url.standardizedFileURL
+        if target == docs { return "/" }
+        let docsPath = docs.path
+        let targetPath = target.path
+        if targetPath.hasPrefix(docsPath + "/") {
+            return "/" + String(targetPath.dropFirst(docsPath.count + 1))
+        }
+        // 父目录或其他（如 /../）
+        let parent = docs.deletingLastPathComponent()
+        if target == parent { return "/../" }
+        if targetPath.hasPrefix(parent.path + "/") {
+            let rel = String(targetPath.dropFirst(parent.path.count + 1))
+            return "/../" + rel
+        }
+        return url.lastPathComponent
     }
 }
 
