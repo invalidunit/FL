@@ -5,7 +5,6 @@ class FileService {
     
     private let fileManager = FileManager.default
     
-    /// 沙盒根目录（Documents 的上级）
     private var sandboxRoot: URL {
         documentsURL.deletingLastPathComponent()
     }
@@ -14,21 +13,31 @@ class FileService {
         fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
     
-    /// 回收站（与 Documents 平行）
     var trashURL: URL {
         sandboxRoot.appendingPathComponent("Trash")
     }
     
-    init() {
-        // 确保 Trash 存在
-        try? fileManager.createDirectory(at: trashURL, withIntermediateDirectories: true)
+    /// App Group 容器
+    var groupURL: URL? {
+        fileManager.containerURL(forSecurityApplicationGroupIdentifier: "group.com.nan.filzalite")
     }
     
-    /// 是否允许进入这个路径（只允许 Documents 及其子目录）
+    init() {
+        try? fileManager.createDirectory(at: trashURL, withIntermediateDirectories: true)
+        if let g = groupURL {
+            try? fileManager.createDirectory(at: g, withIntermediateDirectories: true)
+        }
+    }
+    
     func isAllowed(_ url: URL) -> Bool {
         let docs = documentsURL.standardizedFileURL.path
         let target = url.standardizedFileURL.path
-        return target == docs || target.hasPrefix(docs + "/")
+        if target == docs || target.hasPrefix(docs + "/") { return true }
+        if let g = groupURL {
+            let gp = g.standardizedFileURL.path
+            if target == gp || target.hasPrefix(gp + "/") { return true }
+        }
+        return false
     }
     
     func contents(of url: URL) -> [FileItem] {
@@ -72,7 +81,6 @@ class FileService {
         try Data().write(to: newURL)
     }
     
-    /// 移动到回收站
     func moveToTrash(item: FileItem) throws {
         let dest = trashURL.appendingPathComponent(item.name)
         let finalDest = uniqueURL(dest)
@@ -96,7 +104,6 @@ class FileService {
         try fileManager.moveItem(at: item.url, to: dest)
     }
     
-    /// 避免重名
     private func uniqueURL(_ url: URL) -> URL {
         var result = url
         var i = 1

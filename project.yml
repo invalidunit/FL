@@ -26,6 +26,7 @@ targets:
     settings:
       base:
         INFOPLIST_FILE: Sources/FilzaLite/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Sources/FilzaLite/FilzaLite.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: com.nan.filzalite
         IPHONEOS_DEPLOYMENT_TARGET: 15.0
         TARGETED_DEVICE_FAMILY: "1,2"
