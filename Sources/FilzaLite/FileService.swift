@@ -23,9 +23,22 @@ class FileService {
     }
     
     init() {
-        try? fileManager.createDirectory(at: trashURL, withIntermediateDirectories: true)
+        ensureTrash()
         if let g = groupURL {
             try? fileManager.createDirectory(at: g, withIntermediateDirectories: true)
+        }
+    }
+    
+    /// 确保 Trash 目录存在（多次尝试）
+    func ensureTrash() {
+        if !fileManager.fileExists(atPath: trashURL.path) {
+            try? fileManager.createDirectory(at: trashURL, withIntermediateDirectories: true, attributes: nil)
+        }
+        // 再确认一次
+        if !fileManager.fileExists(atPath: trashURL.path) {
+            // 兜底：如果沙盒根不可写，就放在 Documents 里（极少情况）
+            let fallback = documentsURL.appendingPathComponent(".Trash")
+            try? fileManager.createDirectory(at: fallback, withIntermediateDirectories: true)
         }
     }
     
@@ -45,6 +58,9 @@ class FileService {
     }
     
     func contents(of url: URL) -> [FileItem] {
+        if url.standardizedFileURL == trashURL.standardizedFileURL {
+            ensureTrash()
+        }
         guard isAllowed(url) else { return [] }
         do {
             let urls = try fileManager.contentsOfDirectory(
@@ -74,18 +90,21 @@ class FileService {
     }
     
     func createFolder(named name: String, in parent: URL) throws {
+        if parent.standardizedFileURL == trashURL.standardizedFileURL { ensureTrash() }
         guard isAllowed(parent) else { return }
         let newURL = parent.appendingPathComponent(name)
         try fileManager.createDirectory(at: newURL, withIntermediateDirectories: false)
     }
     
     func createEmptyFile(named name: String, in parent: URL) throws {
+        if parent.standardizedFileURL == trashURL.standardizedFileURL { ensureTrash() }
         guard isAllowed(parent) else { return }
         let newURL = parent.appendingPathComponent(name)
         try Data().write(to: newURL)
     }
     
     func moveToTrash(item: FileItem) throws {
+        ensureTrash()
         let dest = trashURL.appendingPathComponent(item.name)
         let finalDest = uniqueURL(dest)
         try fileManager.moveItem(at: item.url, to: finalDest)

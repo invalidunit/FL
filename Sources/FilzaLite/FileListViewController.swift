@@ -521,21 +521,36 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         present(nav, animated: true)
     }
     
-    private func animateReload(fromRight: Bool) {
-        let direction: CGFloat = fromRight ? 1 : -1
-        UIView.transition(with: tableView, duration: 0.28, options: .transitionCrossDissolve, animations: {
-            self.loadItems()
-        })
-        for cell in tableView.visibleCells {
-            cell.transform = CGAffineTransform(translationX: direction * 50, y: 0)
-            cell.alpha = 0.5
-        }
-        UIView.animate(withDuration: 0.28, delay: 0, options: .curveEaseOut) {
-            for cell in self.tableView.visibleCells {
-                cell.transform = .identity
-                cell.alpha = 1
+    override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        let item = isSearching ? filteredItems[indexPath.row] : items[indexPath.row]
+        let delete = UIContextualAction(style: .destructive, title: NSLocalizedString("Trash", comment: "")) { [weak self] _, _, completion in
+            guard let self = self else { completion(false); return }
+            do {
+                try FileService.shared.moveToTrash(item: item)
+                // 淡出动画
+                if let cell = tableView.cellForRow(at: indexPath) {
+                    UIView.animate(withDuration: 0.25, animations: {
+                        cell.alpha = 0
+                        cell.transform = CGAffineTransform(translationX: -30, y: 0)
+                    }) { _ in
+                        self.loadItems()
+                    }
+                } else {
+                    self.loadItems()
+                }
+                completion(true)
+            } catch {
+                completion(false)
             }
         }
+        delete.image = UIImage(systemName: "trash")
+        return UISwipeActionsConfiguration(actions: [delete])
+    }
+    
+    private func animateReload(fromRight: Bool) {
+        UIView.transition(with: tableView, duration: 0.25, options: .transitionCrossDissolve, animations: {
+            self.loadItems()
+        })
     }
     
     private func flashMessage(_ text: String) {
