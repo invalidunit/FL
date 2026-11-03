@@ -22,6 +22,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     static var history: [URL] = []
     static var favorites: [URL] = []
     static var tabs: [URL] = []
+    static var currentTabIndex: Int = 0
     
     private var isRoot: Bool {
         let cur = currentURL.standardizedFileURL
@@ -503,11 +504,16 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     }
     
     @objc private func trashTapped() {
+        let inTrash = currentURL.standardizedFileURL.path.hasPrefix(FileService.shared.trashURL.standardizedFileURL.path)
         for item in selected {
             do {
-                try FileService.shared.moveToTrash(item: item)
+                if inTrash {
+                    try FileService.shared.deletePermanently(item: item)
+                } else {
+                    try FileService.shared.moveToTrash(item: item)
+                }
             } catch {
-                self.logError("Move to trash failed: \(error.localizedDescription)")
+                self.logError("Delete failed: \(error.localizedDescription)")
             }
         }
         selected.removeAll()
@@ -543,12 +549,18 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     
     @objc private func tabsTapped() {
         let vc = TabsPreviewViewController(tabs: FileListViewController.tabs, current: currentURL) { [weak self] url in
+            if let idx = FileListViewController.tabs.firstIndex(of: url) {
+                FileListViewController.currentTabIndex = idx
+            }
             self?.dismiss(animated: true) {
                 self?.onNavigate?(url)
             }
         } onClose: { url in
             if let idx = FileListViewController.tabs.firstIndex(of: url) {
                 FileListViewController.tabs.remove(at: idx)
+                if FileListViewController.currentTabIndex >= FileListViewController.tabs.count {
+                    FileListViewController.currentTabIndex = max(0, FileListViewController.tabs.count - 1)
+                }
             }
         } onAdd: {
             let relative = UserDefaults.standard.string(forKey: "defaultNewTabRelativePath") ?? ""
@@ -565,6 +577,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
                 }
             }
             FileListViewController.tabs.append(target)
+            FileListViewController.currentTabIndex = FileListViewController.tabs.count - 1
         }
         let nav = UINavigationController(rootViewController: vc)
         nav.modalPresentationStyle = .pageSheet
@@ -575,9 +588,13 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         let item = isSearching ? filteredItems[indexPath.row] : items[indexPath.row]
         let delete = UIContextualAction(style: .destructive, title: NSLocalizedString("Trash", comment: "")) { [weak self] _, _, completion in
             guard let self = self else { completion(false); return }
+            let inTrash = self.currentURL.standardizedFileURL.path.hasPrefix(FileService.shared.trashURL.standardizedFileURL.path)
             do {
-                try FileService.shared.moveToTrash(item: item)
-                // 淡出动画
+                if inTrash {
+                    try FileService.shared.deletePermanently(item: item)
+                } else {
+                    try FileService.shared.moveToTrash(item: item)
+                }
                 if let cell = tableView.cellForRow(at: indexPath) {
                     UIView.animate(withDuration: 0.25, animations: {
                         cell.alpha = 0
@@ -590,6 +607,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
                 }
                 completion(true)
             } catch {
+                self.logError("Delete failed: \(error.localizedDescription)")
                 completion(false)
             }
         }
@@ -741,8 +759,6 @@ class FavoritesViewController: UITableViewController {
         systemItems.append(("[App Group]", group, "group.com.nan.filzalite", "folder.badge.person.crop"))
         
         systemItems.append(("Trash", FileService.shared.trashURL, ".appdata/Library/Trash", "trash"))
-        
-        systemItems.append(("[App Caches]", FileService.shared.cachesURL, ".appdata/Library/Caches", "folder"))
     }
     required init?(coder: NSCoder) { fatalError() }
     
@@ -1072,22 +1088,45 @@ class SettingsViewController: UITableViewController {
     @objc private func close() { dismiss(animated: true) }
     
     override func numberOfSections(in tableView: UITableView) -> Int { 1 }
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 1 }
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 2 }
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         NSLocalizedString("General", comment: "")
     }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
-        cell.textLabel?.text = NSLocalizedString("New Tab Directory", comment: "")
-        let rel = UserDefaults.standard.string(forKey: "defaultNewTabRelativePath") ?? ""
-        cell.detailTextLabel?.text = rel.isEmpty ? "/" : rel
-        cell.accessoryType = .disclosureIndicator
+        if indexPath.row == 0 {
+            cell.textLabel?.text = NSLocalizedString("New Tab Directory", comment: "")
+            let rel = UserDefaults.standard.string(forKey: "defaultNewTabRelativePath") ?? ""
+            cell.detailTextLabel?.text = rel.isEmpty ? "/" : rel
+            cell.accessoryType = .disclosureIndicator
+        } else {
+            cell.textLabel?.text = NSLocalizedString("Clear Cache", comment: "")
+            cell.textLabel?.textColor = .systemRed
+            cell.accessoryType = .none
+        }
         return cell
     }
     
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        editNewTabDirectory()
+        if indexPath.row == 0 {
+            editNewTabDirectory()
+        } else {
+            clearCache()
+        }
+    }
+    
+    private func clearCache() {
+        do {
+            try FileService.shared.clearCaches()
+            let a = UIAlertController(title: nil, message: NSLocalizedString("Cache cleared", comment: ""), preferredStyle: .alert)
+            present(a, animated: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { a.dismiss(animated: true) }
+        } catch {
+            let a = UIAlertController(title: "Error", message: error.localizedDescription, preferredStyle: .alert)
+            a.addAction(UIAlertAction(title: "OK", style: .default))
+            present(a, animated: true)
+        }
     }
     
     private func editNewTabDirectory() {

@@ -11,17 +11,18 @@ struct ContentView: View {
             url: currentURL,
             parentName: parentName,
             onNavigate: { newURL in
-                // 如果当前是 Documents，显示为 /
                 if currentURL.standardizedFileURL == documentsURL.standardizedFileURL {
                     parentName = "/"
                 } else {
                     parentName = currentURL.lastPathComponent
                 }
-                // 更新当前标签的路径（保留已有标签）
-                if let idx = FileListViewController.tabs.firstIndex(of: currentURL) {
+                // 只更新当前标签的路径
+                let idx = FileListViewController.currentTabIndex
+                if idx >= 0 && idx < FileListViewController.tabs.count {
                     FileListViewController.tabs[idx] = newURL
                 } else if !FileListViewController.tabs.isEmpty {
                     FileListViewController.tabs[FileListViewController.tabs.count - 1] = newURL
+                    FileListViewController.currentTabIndex = FileListViewController.tabs.count - 1
                 }
                 currentURL = newURL
             },
