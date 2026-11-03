@@ -54,11 +54,21 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         setupSelectedCount()
         loadItems()
         
+        // 下拉刷新
+        let refresh = UIRefreshControl()
+        refresh.addTarget(self, action: #selector(refreshPulled), for: .valueChanged)
+        tableView.refreshControl = refresh
+        
         recordHistory(currentURL)
         // 不再在这里自动 append，避免每次导航都新增标签
         if FileListViewController.tabs.isEmpty {
             FileListViewController.tabs.append(currentURL)
         }
+    }
+    
+    @objc private func refreshPulled() {
+        loadItems()
+        tableView.refreshControl?.endRefreshing()
     }
     
     private func recordHistory(_ url: URL) {
@@ -86,6 +96,16 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
             title = currentURL.lastPathComponent
         }
         navigationItem.rightBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Edit", comment: ""), style: .plain, target: self, action: #selector(toggleEdit))
+        
+        // 临时调试：进入 Trash 时显示真实路径
+        if currentURL.standardizedFileURL == FileService.shared.trashURL.standardizedFileURL {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                let msg = "Trash path:\n\(self.currentURL.path)\nAllowed: \(FileService.shared.isAllowed(self.currentURL))"
+                let a = UIAlertController(title: "Debug", message: msg, preferredStyle: .alert)
+                a.addAction(UIAlertAction(title: "OK", style: .default))
+                self.present(a, animated: true)
+            }
+        }
     }
     
     private func makeBackButton(title: String) -> UIBarButtonItem {
@@ -319,7 +339,22 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     }
     
     @objc private func addTapped() { showCreateSheet() }
-    @objc private func moreTapped() { showCreateSheet() }
+    @objc private func moreTapped() {
+        if isEditingMode && !selected.isEmpty {
+            shareSelected()
+        } else {
+            showCreateSheet()
+        }
+    }
+    
+    private func shareSelected() {
+        let urls = selected.map { $0.url }
+        let activity = UIActivityViewController(activityItems: urls, applicationActivities: nil)
+        if let p = activity.popoverPresentationController {
+            p.barButtonItem = toolbarItems?.last
+        }
+        present(activity, animated: true)
+    }
     
     private func showCreateSheet() {
         let sheet = UIAlertController(title: NSLocalizedString("More", comment: ""), message: nil, preferredStyle: .actionSheet)
@@ -350,8 +385,12 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         a.addAction(UIAlertAction(title: "Done", style: .default) { _ in
             if let name = a.textFields?.first?.text?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
-                try? FileService.shared.createFolder(named: name, in: self.currentURL)
-                self.loadItems()
+                do {
+                    try FileService.shared.createFolder(named: name, in: self.currentURL)
+                    self.loadItems()
+                } catch {
+                    self.logError("Create folder failed: \(error.localizedDescription)")
+                }
             }
         })
         present(a, animated: true)
@@ -363,8 +402,12 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         a.addAction(UIAlertAction(title: "Done", style: .default) { _ in
             if let name = a.textFields?.first?.text?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
-                try? FileService.shared.createEmptyFile(named: name, in: self.currentURL)
-                self.loadItems()
+                do {
+                    try FileService.shared.createEmptyFile(named: name, in: self.currentURL)
+                    self.loadItems()
+                } catch {
+                    self.logError("Create file failed: \(error.localizedDescription)")
+                }
             }
         })
         present(a, animated: true)
@@ -458,7 +501,11 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     
     @objc private func trashTapped() {
         for item in selected {
-            try? FileService.shared.moveToTrash(item: item)
+            do {
+                try FileService.shared.moveToTrash(item: item)
+            } catch {
+                self.logError("Move to trash failed: \(error.localizedDescription)")
+            }
         }
         selected.removeAll()
         animateReload(fromRight: false)
@@ -551,6 +598,22 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         UIView.transition(with: tableView, duration: 0.25, options: .transitionCrossDissolve, animations: {
             self.loadItems()
         })
+    }
+    
+    private func logError(_ message: String) {
+        let logURL = FileService.shared.documentsURL.appendingPathComponent("error.log")
+        let line = "[\(Date())] \(message)\n"
+        if let data = line.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: logURL.path) {
+                if let handle = try? FileHandle(forWritingTo: logURL) {
+                    handle.seekToEndOfFile()
+                    handle.write(data)
+                    handle.closeFile()
+                }
+            } else {
+                try? data.write(to: logURL)
+            }
+        }
     }
     
     private func flashMessage(_ text: String) {
