@@ -32,7 +32,7 @@ class TextEditorViewController: UIViewController, UITextViewDelegate {
         
         loadContent()
         
-        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "保存", style: .done, target: self, action: #selector(save))
+        navigationItem.rightBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Save", comment: ""), style: .done, target: self, action: #selector(save))
     }
     
     private func loadContent() {
@@ -50,7 +50,7 @@ class TextEditorViewController: UIViewController, UITextViewDelegate {
         guard let data = textView.text.data(using: .utf8) else { return }
         try? data.write(to: url)
         originalText = textView.text
-        let a = UIAlertController(title: nil, message: "已保存", preferredStyle: .alert)
+        let a = UIAlertController(title: nil, message: NSLocalizedString("Saved", comment: ""), preferredStyle: .alert)
         present(a, animated: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { a.dismiss(animated: true) }
     }

@@ -38,6 +38,18 @@
 "Downloaded" = "已下载";
 "Download failed" = "下载失败";
 "Nothing to paste" = "没有可粘贴的内容";
+"Pasteboard" = "剪贴板";
+"Paste" = "粘贴";
+"View" = "查看";
+"Clear" = "清除";
+"Share" = "分享";
+"Path" = "路径";
+"Delete" = "删除";
+"Import" = "导入";
+"Items" = "项目";
+"Saved" = "已保存";
+
+
 "History" = "历史";
 "Tabs" = "标签页";
 "Untitled Folder" = "未命名文件夹";

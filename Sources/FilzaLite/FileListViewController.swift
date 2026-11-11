@@ -1,6 +1,7 @@
 import UIKit
+import UniformTypeIdentifiers
 
-class FileListViewController: UITableViewController, UISearchResultsUpdating {
+class FileListViewController: UITableViewController, UISearchBarDelegate, UIDocumentPickerDelegate {
     var currentURL: URL
     var parentName: String = ""
     var items: [FileItem] = []
@@ -16,8 +17,13 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     private var clipboardMode: ClipboardMode = .none
     
     private let selectedCountLabel = UILabel()
-    private let searchController = UISearchController(searchResultsController: nil)
-    private var isSearching: Bool { searchController.isActive && !(searchController.searchBar.text?.isEmpty ?? true) }
+    private let inlineSearch = UISearchBar()
+    private var query = ""
+    private var searchVisible = false
+    private var sortBar: UIView?
+    private var sortBarFloat = SortBarFloat()
+    private let sortBarHeight: CGFloat = 36
+    private var isSearching: Bool { searchVisible && !query.isEmpty }
     
     static var history: [URL] = []
     static var favorites: [URL] = []
@@ -45,8 +51,9 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     override func viewDidLoad() {
         super.viewDidLoad()
         tableView.register(FileCell.self, forCellReuseIdentifier: "FileCell")
-        tableView.rowHeight = 54
-        tableView.separatorInset = UIEdgeInsets(top: 0, left: 56, bottom: 0, right: 0)
+        tableView.rowHeight = 50
+        tableView.separatorInset = .zero
+        tableView.separatorColor = UIColor { $0.userInterfaceStyle == .dark ? .darkGray : UIColor(white: 0.85, alpha: 1) }
         tableView.allowsMultipleSelectionDuringEditing = true
         
         setupNavigation()
@@ -81,7 +88,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     
     private func setupNavigation() {
         if isRoot {
-            navigationItem.leftBarButtonItem = nil
+            navigationItem.leftBarButtonItem = UIBarButtonItem(image: UIImage(systemName: "star"), style: .plain, target: self, action: #selector(favoritesTapped))
             if currentURL.standardizedFileURL == FileService.shared.documentsURL.standardizedFileURL {
                 title = "/"
             } else if currentURL.standardizedFileURL == FileService.shared.trashURL.standardizedFileURL {
@@ -114,17 +121,30 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     func updateNavigation() { setupNavigation() }
     
     private func setupSearch() {
-        searchController.searchResultsUpdater = self
-        searchController.obscuresBackgroundDuringPresentation = false
-        searchController.searchBar.placeholder = NSLocalizedString("Search", comment: "")
-        navigationItem.searchController = searchController
-        definesPresentationContext = true
+        inlineSearch.delegate = self
+        inlineSearch.placeholder = NSLocalizedString("Search", comment: "")
+        inlineSearch.showsCancelButton = true
+        inlineSearch.searchBarStyle = .minimal
+        inlineSearch.isHidden = true
+        tableView.addSubview(inlineSearch)
     }
-    
-    func updateSearchResults(for searchController: UISearchController) {
-        let text = searchController.searchBar.text?.lowercased() ?? ""
-        filteredItems = items.filter { $0.name.lowercased().contains(text) }
+
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        query = searchText
+        applyQuery()
         tableView.reloadData()
+    }
+
+    func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
+        query = ""
+        searchBar.text = ""
+        searchVisible = false
+        searchBar.isHidden = true
+        searchBar.resignFirstResponder()
+        applyQuery()
+        updateSearchInset()
+        tableView.reloadData()
+        pinSortBar(animated: true)
     }
     
     private func setupSortHeader() {
@@ -183,8 +203,51 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
             header.addSubview(backish)
         }
         
-        tableView.tableHeaderView = header
+        sortBar?.removeFromSuperview()
+        tableView.tableHeaderView = nil
+        if tableView.contentInset.top != sortBarHeight + (searchVisible ? 56 : 0) {
+            updateSearchInset()
+        }
+        tableView.addSubview(header)
+        sortBar = header
+        pinSortBar(animated: false)
         updateSortButtons()
+    }
+
+    private func pinSortBar(animated: Bool) {
+        guard let sortBar else { return }
+        let frame = CGRect(x: 0, y: tableView.contentOffset.y + sortBarFloat.position, width: tableView.bounds.width, height: sortBarHeight)
+        let apply = {
+            sortBar.frame = frame
+            let searchHeight: CGFloat = self.searchVisible ? 56 : 0
+            self.inlineSearch.isHidden = !self.searchVisible
+            self.inlineSearch.frame = CGRect(x: 0, y: frame.maxY, width: self.tableView.bounds.width, height: searchHeight)
+            self.tableView.bringSubviewToFront(sortBar)
+            self.tableView.bringSubviewToFront(self.inlineSearch)
+        }
+        if animated {
+            UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .beginFromCurrentState], animations: apply)
+        } else {
+            apply()
+        }
+    }
+
+    override func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        sortBarFloat.scroll(offset: scrollView.contentOffset.y, height: sortBarHeight, fixed: isEditingMode || searchVisible)
+        pinSortBar(animated: false)
+    }
+
+    override func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { settleSortBar() }
+    }
+
+    override func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        settleSortBar()
+    }
+
+    private func settleSortBar() {
+        sortBarFloat.settle(offset: tableView.contentOffset.y, height: sortBarHeight, fixed: isEditingMode || searchVisible)
+        pinSortBar(animated: true)
     }
     
     @objc private func selectAllTapped() {
@@ -200,8 +263,26 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     }
     
     @objc private func focusSearch() {
-        searchController.isActive = true
-        searchController.searchBar.becomeFirstResponder()
+        searchVisible.toggle()
+        sortBarFloat.position = 0
+        inlineSearch.isHidden = !searchVisible
+        updateSearchInset()
+        if searchVisible {
+            inlineSearch.becomeFirstResponder()
+        } else {
+            query = ""
+            inlineSearch.text = ""
+            inlineSearch.resignFirstResponder()
+            applyQuery()
+            tableView.reloadData()
+        }
+        pinSortBar(animated: true)
+    }
+
+    private func updateSearchInset() {
+        let top = sortBarHeight + (searchVisible ? 56 : 0)
+        tableView.contentInset.top = top
+        tableView.verticalScrollIndicatorInsets.top = top
     }
     
     static let sortButtonKey = "filza.sortButtons"
@@ -313,9 +394,32 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
             toolbarItems = [paste, flex, history, flex, star, flex, gear, flex, tabs]
         }
         navigationController?.isToolbarHidden = false
-        navigationController?.toolbar.barTintColor = .systemBackground
-        navigationController?.toolbar.backgroundColor = .systemBackground
+        let bar = UIColor { trait in
+            trait.userInterfaceStyle == .dark
+                ? UIColor(red: 20/255, green: 19/255, blue: 20/255, alpha: 1)
+                : UIColor(red: 246/255, green: 245/255, blue: 246/255, alpha: 1)
+        }
+        let appearance = UIToolbarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = bar
+        navigationController?.toolbar.standardAppearance = appearance
+        navigationController?.toolbar.scrollEdgeAppearance = appearance
+        navigationController?.toolbar.tintColor = UIColor(red: 0, green: 122/255, blue: 1, alpha: 1)
         navigationController?.toolbar.isTranslucent = false
+        applyNavigationStyle()
+    }
+
+    private func applyNavigationStyle() {
+        guard let navigation = navigationController else { return }
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = .systemBackground
+        appearance.titleTextAttributes = [.foregroundColor: UIColor.label]
+        navigation.navigationBar.standardAppearance = appearance
+        navigation.navigationBar.scrollEdgeAppearance = appearance
+        navigation.navigationBar.compactAppearance = appearance
+        navigation.navigationBar.tintColor = UIColor(red: 0, green: 122/255, blue: 1, alpha: 1)
+        navigation.navigationBar.prefersLargeTitles = false
     }
     
     private func makeToolbarItem(title: String, image: String, action: Selector, enabled: Bool = true) -> UIBarButtonItem {
@@ -337,8 +441,14 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     func loadItems() {
         items = FileService.shared.contents(of: currentURL)
         applySort()
+        applyQuery()
         tableView.reloadData()
         updateFooter()
+    }
+
+    private func applyQuery() {
+        let text = query.lowercased()
+        filteredItems = text.isEmpty ? items : items.filter { $0.name.lowercased().contains(text) }
     }
     
     private func updateFooter() {
@@ -545,29 +655,92 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     }
     
     @objc private func pasteTapped() {
-        if !clipboard.isEmpty {
-            for item in clipboard {
-                switch clipboardMode {
-                case .copy: try? FileService.shared.copy(item: item, to: currentURL)
-                case .move: try? FileService.shared.move(item: item, to: currentURL)
-                case .none: break
-                }
-            }
-            if clipboardMode == .move {
-                clipboard.removeAll()
-                clipboardMode = .none
-            }
-            animateReload()
-            return
+        let menu = UIAlertController(title: NSLocalizedString("Pasteboard", comment: ""), message: nil, preferredStyle: .actionSheet)
+        if isEditingMode && !selected.isEmpty {
+            menu.addAction(UIAlertAction(title: NSLocalizedString("Copy", comment: ""), style: .default) { _ in self.copyTapped() })
+            menu.addAction(UIAlertAction(title: NSLocalizedString("Move", comment: ""), style: .default) { _ in self.moveTapped() })
+            menu.addAction(UIAlertAction(title: NSLocalizedString("Delete", comment: ""), style: .destructive) { _ in self.confirmDelete(Array(self.selected)) })
         }
-        
-        if let text = UIPasteboard.general.string,
-           let url = URL(string: text),
-           url.scheme == "http" || url.scheme == "https" {
-            confirmDownload(url)
-        } else {
-            flashMessage(NSLocalizedString("Nothing to paste", comment: ""))
+        if !self.clipboard.isEmpty {
+            menu.addAction(UIAlertAction(title: NSLocalizedString("Paste", comment: ""), style: .default) { _ in self.pasteClipboard() })
+            menu.addAction(UIAlertAction(title: NSLocalizedString("View", comment: ""), style: .default) { _ in self.showClipboard() })
+            menu.addAction(UIAlertAction(title: NSLocalizedString("Clear", comment: ""), style: .default) { _ in
+                self.clipboard.removeAll()
+                self.clipboardMode = .none
+            })
+        } else if let text = UIPasteboard.general.string, let url = URL(string: text), url.scheme == "http" || url.scheme == "https" {
+            menu.addAction(UIAlertAction(title: NSLocalizedString("Download", comment: ""), style: .default) { _ in self.confirmDownload(url) })
         }
+        menu.addAction(UIAlertAction(title: NSLocalizedString("New Folder", comment: ""), style: .default) { _ in self.promptNewFolder() })
+        menu.addAction(UIAlertAction(title: NSLocalizedString("New Text", comment: ""), style: .default) { _ in self.promptNewFile() })
+        menu.addAction(UIAlertAction(title: NSLocalizedString("Import", comment: ""), style: .default) { _ in self.importFiles() })
+        menu.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
+        present(menu, animated: true)
+    }
+
+    private func importFiles() {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+        picker.allowsMultipleSelection = true
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        for url in urls {
+            let dest = currentURL.appendingPathComponent(url.lastPathComponent)
+            if FileManager.default.fileExists(atPath: dest.path) { continue }
+            try? FileManager.default.copyItem(at: url, to: dest)
+        }
+        loadItems()
+    }
+
+    private func confirmDelete(_ items: [FileItem]) {
+        guard !items.isEmpty else { return }
+        let alert = UIAlertController(title: NSLocalizedString("Delete", comment: ""), message: items.map(\.name).joined(separator: "\n"), preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
+        alert.addAction(UIAlertAction(title: NSLocalizedString("Delete", comment: ""), style: .destructive) { _ in
+            self.performDelete(items)
+        })
+        present(alert, animated: true)
+    }
+
+    private func performDelete(_ items: [FileItem]) {
+        let inTrash = currentURL.standardizedFileURL.path.hasPrefix(FileService.shared.trashURL.standardizedFileURL.path)
+        for item in items {
+            do {
+                if inTrash { try FileService.shared.deletePermanently(item: item) }
+                else { try FileService.shared.moveToTrash(item: item) }
+            } catch {
+                logError("Delete failed: \(error.localizedDescription)")
+            }
+        }
+        selected.subtract(items)
+        animateReload()
+        updateSelectedCount()
+        if isEditingMode { setupBottomBar(editing: true) }
+    }
+
+    private func pasteClipboard() {
+        for item in clipboard {
+            switch clipboardMode {
+            case .copy: try? FileService.shared.copy(item: item, to: currentURL)
+            case .move: try? FileService.shared.move(item: item, to: currentURL)
+            case .none: break
+            }
+        }
+        if clipboardMode == .move {
+            clipboard.removeAll()
+            clipboardMode = .none
+        }
+        animateReload()
+    }
+
+    private func showClipboard() {
+        let names = clipboard.map(\.name)
+        let vc = ClipboardListViewController(names: names)
+        let nav = UINavigationController(rootViewController: vc)
+        applyNavigationStyle()
+        present(nav, animated: true)
     }
     
     private func confirmDownload(_ url: URL) {
@@ -623,21 +796,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     }
     
     @objc private func trashTapped() {
-        let inTrash = currentURL.standardizedFileURL.path.hasPrefix(FileService.shared.trashURL.standardizedFileURL.path)
-        for item in selected {
-            do {
-                if inTrash {
-                    try FileService.shared.deletePermanently(item: item)
-                } else {
-                    try FileService.shared.moveToTrash(item: item)
-                }
-            } catch {
-                self.logError("Delete failed: \(error.localizedDescription)")
-            }
-        }
-        selected.removeAll()
-        animateReload()
-        updateSelectedCount()
+        confirmDelete(Array(selected))
     }
     
     @objc private func historyTapped() {
@@ -697,7 +856,8 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
             FileListViewController.currentTabIndex = FileListViewController.tabs.count - 1
         }
         let nav = UINavigationController(rootViewController: vc)
-        nav.modalPresentationStyle = .pageSheet
+        nav.modalPresentationStyle = .fullScreen
+        nav.transitioningDelegate = self
         present(nav, animated: true)
     }
     
@@ -779,18 +939,29 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     override func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
         let item = isSearching ? filteredItems[indexPath.row] : items[indexPath.row]
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
-            let info = UIAction(title: NSLocalizedString("Info", comment: ""), image: UIImage(systemName: "info.circle")) { _ in
-                self.showInfo(item)
+            let copy = UIAction(title: NSLocalizedString("Copy", comment: ""), image: UIImage(systemName: "doc.on.doc")) { _ in
+                self.clipboard = [item]
+                self.clipboardMode = .copy
+            }
+            let move = UIAction(title: NSLocalizedString("Move", comment: ""), image: UIImage(systemName: "folder")) { _ in
+                self.clipboard = [item]
+                self.clipboardMode = .move
             }
             let rename = UIAction(title: NSLocalizedString("Rename", comment: ""), image: UIImage(systemName: "pencil")) { _ in
                 self.selected = [item]
                 self.renameTapped()
             }
-            let trash = UIAction(title: NSLocalizedString("Trash", comment: ""), image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
-                try? FileService.shared.moveToTrash(item: item)
-                self.loadItems()
+            let info = UIAction(title: NSLocalizedString("Info", comment: ""), image: UIImage(systemName: "info.circle")) { _ in
+                self.showInfo(item)
             }
-            return UIMenu(title: "", children: [info, rename, trash])
+            let share = UIAction(title: NSLocalizedString("Share", comment: ""), image: UIImage(systemName: "square.and.arrow.up")) { _ in
+                let activity = UIActivityViewController(activityItems: [item.url], applicationActivities: nil)
+                self.present(activity, animated: true)
+            }
+            let trash = UIAction(title: NSLocalizedString("Delete", comment: ""), image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
+                self.confirmDelete([item])
+            }
+            return UIMenu(title: "", children: [copy, move, rename, info, share, trash])
         }
     }
     
@@ -837,15 +1008,9 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     }
     
     private func showInfo(_ item: FileItem) {
-        let msg = """
-        Name: \(item.name)
-        Size: \(item.displaySize)
-        Date: \(item.displayDate)
-        Path: \(item.url.path)
-        """
-        let a = UIAlertController(title: NSLocalizedString("Info", comment: ""), message: msg, preferredStyle: .alert)
-        a.addAction(UIAlertAction(title: "OK", style: .default))
-        present(a, animated: true)
+        let vc = FileInfoViewController(item: item)
+        let nav = UINavigationController(rootViewController: vc)
+        present(nav, animated: true)
     }
 }
 
@@ -1074,6 +1239,19 @@ class TabsPreviewViewController: UIViewController, UICollectionViewDataSource, U
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        let cells = collectionView.visibleCells.sorted { $0.frame.minY < $1.frame.minY }
+        for (index, cell) in cells.enumerated() {
+            cell.alpha = 0
+            cell.transform = CGAffineTransform(translationX: 0, y: 28).scaledBy(x: 0.94, y: 0.94)
+            UIView.animate(withDuration: 0.45, delay: 0.03 * Double(index), usingSpringWithDamping: 0.86, initialSpringVelocity: 0.2, options: [.curveEaseOut]) {
+                cell.alpha = 1
+                cell.transform = .identity
+            }
+        }
     }
 
     @objc private func close() { dismiss(animated: true) }
@@ -1382,6 +1560,68 @@ class SortButtonsViewController: UITableViewController {
 }
 
 // 文件类型图标
+class FileInfoViewController: UITableViewController {
+    private let item: FileItem
+    private let rows: [(String, String)]
+    init(item: FileItem) {
+        self.item = item
+        var rows = [
+            (NSLocalizedString("Name", comment: ""), item.name),
+            (NSLocalizedString("Size", comment: ""), item.displaySize),
+            (NSLocalizedString("Date", comment: ""), item.displayDate),
+            (NSLocalizedString("Path", comment: ""), FileListViewController.displayTitle(for: item.url) == item.name ? item.name : FileListViewController.displayTitle(for: item.url.deletingLastPathComponent()) + "/" + item.name)
+        ]
+        if item.isDirectory {
+            let count = FileService.shared.contents(of: item.url).count
+            rows.insert((NSLocalizedString("Items", comment: ""), "\(count)"), at: 2)
+        }
+        self.rows = rows
+        super.init(style: .insetGrouped)
+        title = NSLocalizedString("Info", comment: "")
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(close))
+    }
+    @objc private func close() { dismiss(animated: true) }
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { rows.count }
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        cell.textLabel?.text = rows[indexPath.row].0
+        cell.detailTextLabel?.text = rows[indexPath.row].1
+        cell.detailTextLabel?.numberOfLines = 0
+        cell.selectionStyle = .none
+        return cell
+    }
+}
+
+class ClipboardListViewController: UITableViewController {
+    private let names: [String]
+    init(names: [String]) {
+        self.names = names
+        super.init(style: .insetGrouped)
+        title = NSLocalizedString("Pasteboard", comment: "")
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(close))
+    }
+    @objc private func close() { dismiss(animated: true) }
+    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        "\(names.count)"
+    }
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { names.count }
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        cell.textLabel?.text = names[indexPath.row]
+        cell.imageView?.image = UIImage(systemName: "doc")
+        cell.selectionStyle = .none
+        return cell
+    }
+}
+
 class FileCell: UITableViewCell {
     private let icon = UIImageView()
     private let nameLabel = UILabel()
@@ -1411,13 +1651,14 @@ class FileCell: UITableViewCell {
         
         icon.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        nameLabel.font = .systemFont(ofSize: 16)
+        nameLabel.font = .systemFont(ofSize: 17)
+        nameLabel.lineBreakMode = .byTruncatingMiddle
         dateLabel.translatesAutoresizingMaskIntoConstraints = false
-        dateLabel.font = .systemFont(ofSize: 11)
-        dateLabel.textColor = .secondaryLabel
+        dateLabel.font = .systemFont(ofSize: 12)
+        dateLabel.textColor = .lightGray
         sizeLabel.translatesAutoresizingMaskIntoConstraints = false
         sizeLabel.font = .systemFont(ofSize: 12)
-        sizeLabel.textColor = .secondaryLabel
+        sizeLabel.textColor = .lightGray
         sizeLabel.textAlignment = .right
         infoBtn.translatesAutoresizingMaskIntoConstraints = false
         infoBtn.setImage(UIImage(systemName: "info.circle"), for: .normal)
@@ -1440,11 +1681,11 @@ class FileCell: UITableViewCell {
             
             iconLead,
             icon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 28),
-            icon.heightAnchor.constraint(equalToConstant: 28),
+            icon.widthAnchor.constraint(equalToConstant: 36),
+            icon.heightAnchor.constraint(equalToConstant: 36),
             
             nameLabel.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
-            nameLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
+            nameLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
             nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: sizeLabel.leadingAnchor, constant: -8),
             
             dateLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
@@ -1485,7 +1726,7 @@ class FileCell: UITableViewCell {
         if editing {
             selectCircle.image = UIImage(systemName: selected ? "checkmark.circle.fill" : "circle")
             selectCircle.tintColor = selected ? .systemBlue : .systemGray3
-            contentView.backgroundColor = selected ? UIColor(red: 1, green: 0.98, blue: 0.72, alpha: 1) : .systemBackground
+            contentView.backgroundColor = selected ? UIColor(red: 233/255, green: 240/255, blue: 251/255, alpha: 1) : .systemBackground
         } else {
             contentView.backgroundColor = .systemBackground
         }
@@ -1514,6 +1755,74 @@ class FileCell: UITableViewCell {
 extension FileListViewController: UIGestureRecognizerDelegate {
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         !isRoot && (navigationController?.viewControllers.count ?? 0) > 1
+    }
+}
+
+extension FileListViewController: UIViewControllerTransitioningDelegate {
+    func animationController(forPresented presented: UIViewController, presenting: UIViewController, source: UIViewController) -> UIViewControllerAnimatedTransitioning? {
+        TabZoomTransition(presenting: true)
+    }
+    func animationController(forDismissed dismissed: UIViewController) -> UIViewControllerAnimatedTransitioning? {
+        TabZoomTransition(presenting: false)
+    }
+}
+
+private struct SortBarFloat {
+    var previous: CGFloat = 0
+    var position: CGFloat = 0
+    mutating func scroll(offset: CGFloat, height: CGFloat, fixed: Bool) {
+        let old = previous
+        previous = offset
+        if fixed || offset <= 0 { position = 0; return }
+        position = max(-height, min(0, position + old - offset))
+    }
+    mutating func settle(offset: CGFloat, height: CGFloat, fixed: Bool) {
+        if fixed || offset <= 0 || position > -height / 2 { position = 0 }
+        else { position = -height }
+        previous = offset
+    }
+}
+
+private final class TabZoomTransition: NSObject, UIViewControllerAnimatedTransitioning {
+    let presenting: Bool
+    init(presenting: Bool) { self.presenting = presenting }
+    func transitionDuration(using transitionContext: UIViewControllerContextTransitioning?) -> TimeInterval {
+        UIAccessibility.isReduceMotionEnabled ? 0.18 : 0.52
+    }
+    func animateTransition(using transitionContext: UIViewControllerContextTransitioning) {
+        let container = transitionContext.containerView
+        let duration = transitionDuration(using: transitionContext)
+        if presenting, let toView = transitionContext.view(forKey: .to) {
+            toView.frame = container.bounds
+            toView.transform = CGAffineTransform(scaleX: 0.86, y: 0.86)
+            toView.alpha = 0
+            toView.layer.cornerRadius = 20
+            toView.clipsToBounds = true
+            container.addSubview(toView)
+            UIView.animate(withDuration: duration, delay: 0, usingSpringWithDamping: 0.88, initialSpringVelocity: 0.25, options: [.curveEaseOut]) {
+                toView.transform = .identity
+                toView.alpha = 1
+                toView.layer.cornerRadius = 0
+            } completion: { _ in
+                toView.clipsToBounds = false
+                transitionContext.completeTransition(!transitionContext.transitionWasCancelled)
+            }
+        } else if let fromView = transitionContext.view(forKey: .from) {
+            if let toView = transitionContext.view(forKey: .to) {
+                toView.frame = container.bounds
+                container.insertSubview(toView, belowSubview: fromView)
+            }
+            fromView.clipsToBounds = true
+            UIView.animate(withDuration: duration, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0.2, options: [.curveEaseIn]) {
+                fromView.transform = CGAffineTransform(scaleX: 0.86, y: 0.86)
+                fromView.alpha = 0
+                fromView.layer.cornerRadius = 20
+            } completion: { _ in
+                transitionContext.completeTransition(!transitionContext.transitionWasCancelled)
+            }
+        } else {
+            transitionContext.completeTransition(false)
+        }
     }
 }
 

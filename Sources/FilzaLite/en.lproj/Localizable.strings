@@ -38,6 +38,17 @@
 "Downloaded" = "Downloaded";
 "Download failed" = "Download failed";
 "Nothing to paste" = "Nothing to paste";
+"Pasteboard" = "Pasteboard";
+"Paste" = "Paste";
+"View" = "View";
+"Clear" = "Clear";
+"Share" = "Share";
+"Path" = "Path";
+"Delete" = "Delete";
+"Import" = "Import";
+"Items" = "Items";
+"Saved" = "Saved";
+
 "History" = "History";
 "Tabs" = "Tabs";
 "Untitled Folder" = "Untitled Folder";
