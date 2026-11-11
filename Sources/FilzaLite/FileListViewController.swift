@@ -215,7 +215,7 @@ final class FileListViewController: UIViewController, UITableViewDataSource, UIT
             let all = !shown.isEmpty && selected.count == shown.count
             left.setImage(UIImage(systemName: all ? "checkmark.circle.fill" : "circle"), for: .normal)
             left.tintColor = all ? .systemBlue : .systemGray3
-            left.addTarget(self, action: #selector(selectAll), for: .touchUpInside)
+            left.addTarget(self, action: #selector(selectAllRows), for: .touchUpInside)
         } else {
             left.setImage(UIImage(systemName: "magnifyingglass"), for: .normal)
             left.addTarget(self, action: #selector(toggleSearch), for: .touchUpInside)
@@ -261,7 +261,7 @@ final class FileListViewController: UIViewController, UITableViewDataSource, UIT
         load()
         rebuildSortBar()
     }
-    @objc private func selectAll() {
+    @objc private func selectAllRows() {
         if selected.count == shown.count { selected.removeAll() }
         else { selected = Set(shown.map(\.url)) }
         table.reloadData()
