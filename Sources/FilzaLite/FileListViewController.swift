@@ -150,7 +150,8 @@ final class FileListViewController: UIViewController, UITableViewDataSource, UIT
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === table, didPlace else { return }
-        float.scroll(offset: scrollView.contentOffset.y + (searchVisible ? 56 : 0), fixed: isEditing || searchVisible)
+        let extra: CGFloat = searchVisible ? 56 : 0
+        float.scroll(offset: scrollView.contentOffset.y + extra, fixed: isEditing || searchVisible)
         placeBars()
     }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -158,7 +159,8 @@ final class FileListViewController: UIViewController, UITableViewDataSource, UIT
     }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { settle() }
     private func settle() {
-        float.settle(offset: table.contentOffset.y + (searchVisible ? 56 : 0), fixed: isEditing || searchVisible)
+        let extra: CGFloat = searchVisible ? 56 : 0
+        float.settle(offset: table.contentOffset.y + extra, fixed: isEditing || searchVisible)
         UIView.animate(withDuration: 0.2) { self.placeBars() }
     }
 
@@ -222,7 +224,7 @@ final class FileListViewController: UIViewController, UITableViewDataSource, UIT
         let titles = [NSLocalizedString("Name", comment: ""), NSLocalizedString("Date", comment: ""), NSLocalizedString("Size", comment: ""), NSLocalizedString("Type", comment: "")]
         let tags = AppStore.sortTags()
         let rightReserve: CGFloat = isEditing ? 8 : 36
-        let usable = max(1, view.bounds.width - 44 - rightReserve)
+        let usable = max(CGFloat(1), view.bounds.width - 44 - rightReserve)
         let col = usable / CGFloat(tags.count)
         for (i, tag) in tags.enumerated() {
             let button = UIButton(type: .system)
