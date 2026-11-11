@@ -12,10 +12,12 @@
 "Cancel" = "Cancel";
 "Favorites" = "Favorites";
 "Settings" = "Settings";
+"Sort Buttons" = "Sort Buttons";
 "Recents" = "Recents";
 "Name" = "Name";
 "Date" = "Date";
 "Size" = "Size";
+"Type" = "Type";
 "General" = "General";
 "New Tab Directory" = "New Tab Directory";
 "Relative path from / (empty = /). If not exist, falls back to /." = "Relative path from / (empty = /). If not exist, falls back to /.";

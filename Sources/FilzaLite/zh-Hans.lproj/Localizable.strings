@@ -12,10 +12,12 @@
 "Cancel" = "取消";
 "Favorites" = "收藏夹";
 "Settings" = "设置";
+"Sort Buttons" = "排序按钮";
 "Recents" = "最近";
 "Name" = "名称";
 "Date" = "日期";
 "Size" = "大小";
+"Type" = "类型";
 "General" = "通用";
 "New Tab Directory" = "新标签页目录";
 "Relative path from / (empty = /). If not exist, falls back to /." = "从 / 开始的相对路径（留空为 /）。若不存在则回退到 /。";

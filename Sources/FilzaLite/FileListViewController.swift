@@ -33,7 +33,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         return cur == docs || cur == trash || cur == group || cur == caches
     }
     
-    enum SortMode { case name, date, size }
+    enum SortMode { case name, date, size, type }
     enum ClipboardMode { case none, copy, move }
     
     init(url: URL) {
@@ -149,18 +149,19 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
             header.addSubview(search)
         }
         
+        let options = enabledSortOptions
         let leftInset: CGFloat = 40
-        let rightInset: CGFloat = isEditingMode ? 40 : 68
-        let colW = max(60, (header.bounds.width - leftInset - rightInset) / 3)
-        let name = makeSortButton(NSLocalizedString("Name", comment: ""), tag: 0)
-        name.frame = CGRect(x: leftInset, y: 4, width: colW, height: 28)
-        let date = makeSortButton(NSLocalizedString("Date", comment: ""), tag: 1)
-        date.frame = CGRect(x: leftInset + colW, y: 4, width: colW, height: 28)
-        let size = makeSortButton(NSLocalizedString("Size", comment: ""), tag: 2)
-        size.frame = CGRect(x: leftInset + colW * 2, y: 4, width: colW, height: 28)
-        header.addSubview(name)
-        header.addSubview(date)
-        header.addSubview(size)
+        let rightInset: CGFloat = isEditingMode ? 36 : 64
+        let usable = max(1, header.bounds.width - leftInset - rightInset)
+        let col = usable / CGFloat(max(options.count, 1))
+        for (index, option) in options.enumerated() {
+            let button = makeSortButton(option.title, tag: option.tag)
+            let slot = CGRect(x: leftInset + col * CGFloat(index), y: 2, width: col, height: 32)
+            button.frame = slot
+            let font = fittedSortFont(option.title, width: col - 18)
+            button.titleLabel?.font = font
+            header.addSubview(button)
+        }
         
         let right = UIButton(type: .system)
         right.tintColor = .systemBlue
@@ -203,10 +204,42 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         searchController.searchBar.becomeFirstResponder()
     }
     
+    static let sortButtonKey = "filza.sortButtons"
+
+    static func enabledSortTags() -> [Int] {
+        let saved = UserDefaults.standard.array(forKey: sortButtonKey) as? [Int] ?? [0, 1, 2]
+        var seen = Set<Int>()
+        let tags = saved.filter { (0...3).contains($0) && seen.insert($0).inserted }
+        return tags.isEmpty ? [0] : tags
+    }
+
+    private var enabledSortOptions: [(title: String, tag: Int)] {
+        let titles = [
+            NSLocalizedString("Name", comment: ""),
+            NSLocalizedString("Date", comment: ""),
+            NSLocalizedString("Size", comment: ""),
+            NSLocalizedString("Type", comment: "")
+        ]
+        return Self.enabledSortTags().map { ($0 >= 0 && $0 < titles.count) ? (titles[$0], $0) : (titles[0], 0) }
+    }
+
+    private func fittedSortFont(_ title: String, width: CGFloat) -> UIFont {
+        var size: CGFloat = 14
+        while size > 9 {
+            let textWidth = (title as NSString).size(withAttributes: [.font: UIFont.systemFont(ofSize: size)]).width
+            if textWidth <= width { return .systemFont(ofSize: size) }
+            size -= 0.5
+        }
+        return .systemFont(ofSize: 9)
+    }
+
     private func makeSortButton(_ title: String, tag: Int) -> UIButton {
         let b = UIButton(type: .system)
         b.setTitle(title, for: .normal)
         b.titleLabel?.font = .systemFont(ofSize: 14)
+        b.titleLabel?.adjustsFontSizeToFitWidth = true
+        b.titleLabel?.minimumScaleFactor = 0.6
+        b.titleLabel?.lineBreakMode = .byClipping
         b.contentHorizontalAlignment = .center
         b.tag = tag
         b.addTarget(self, action: #selector(sortTapped(_:)), for: .touchUpInside)
@@ -216,8 +249,8 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     private func updateSortButtons() {
         guard let header = tableView.tableHeaderView else { return }
         for v in header.subviews {
-            guard let b = v as? UIButton, b.tag >= 0 && b.tag <= 2 else { continue }
-            let active = (b.tag == 0 && sortMode == .name) || (b.tag == 1 && sortMode == .date) || (b.tag == 2 && sortMode == .size)
+            guard let b = v as? UIButton, b.tag >= 0 && b.tag <= 3 else { continue }
+            let active = (b.tag == 0 && sortMode == .name) || (b.tag == 1 && sortMode == .date) || (b.tag == 2 && sortMode == .size) || (b.tag == 3 && sortMode == .type)
             b.setTitleColor(active ? .systemBlue : .secondaryLabel, for: .normal)
             let cfg = UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)
             if active {
@@ -347,6 +380,12 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         case .name: items.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         case .date: items.sort { ($0.modificationDate ?? .distantPast) > ($1.modificationDate ?? .distantPast) }
         case .size: items.sort { $0.size > $1.size }
+        case .type: items.sort {
+            let left = $0.url.pathExtension.lowercased()
+            let right = $1.url.pathExtension.lowercased()
+            if left == right { return $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            return left.localizedStandardCompare(right) == .orderedAscending
+        }
         }
     }
     
@@ -398,6 +437,25 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         updateActiveTab(currentURL)
+        let tags = Self.enabledSortTags()
+        let currentTag: Int
+        switch sortMode {
+        case .name: currentTag = 0
+        case .date: currentTag = 1
+        case .size: currentTag = 2
+        case .type: currentTag = 3
+        }
+        if !tags.contains(currentTag) {
+            switch tags[0] {
+            case 1: sortMode = .date
+            case 2: sortMode = .size
+            case 3: sortMode = .type
+            default: sortMode = .name
+            }
+            applySort()
+            tableView.reloadData()
+        }
+        setupSortHeader()
         navigationController?.isToolbarHidden = false
         navigationController?.interactivePopGestureRecognizer?.isEnabled = !isRoot
         navigationController?.interactivePopGestureRecognizer?.delegate = self
@@ -423,6 +481,7 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
         case 0: sortMode = .name
         case 1: sortMode = .date
         case 2: sortMode = .size
+        case 3: sortMode = .type
         default: break
         }
         updateSortButtons()
@@ -790,38 +849,40 @@ class FileListViewController: UITableViewController, UISearchResultsUpdating {
     }
 }
 
-// 收藏夹
+// 收藏夹：扁平行列表，用户收藏和系统入口分开
 class FavoritesViewController: UITableViewController {
     private var favorites: [URL]
     private let currentURL: URL
     var onSelect: ((URL) -> Void)?
-    
-    private var systemItems: [(title: String, url: URL?, displayPath: String, icon: String)] = []
-    
+    private let systemItems: [(title: String, url: URL, path: String, icon: String)]
+
     init(currentURL: URL, onSelect: @escaping (URL) -> Void) {
         self.favorites = FileListViewController.favorites
         self.currentURL = currentURL
         self.onSelect = onSelect
-        super.init(style: .insetGrouped)
-        self.title = NSLocalizedString("Favorites", comment: "")
-        
-        systemItems.append(("[root]", FileService.shared.documentsURL, "/", "folder"))
-        
-        let group = FileService.shared.groupURL ?? FileService.shared.documentsURL.appendingPathComponent("AppGroupPlaceholder")
-        systemItems.append(("[App Group]", group, "group.com.nan.filzalite", "folder.badge.person.crop"))
-        
-        systemItems.append(("Trash", FileService.shared.trashURL, ".appdata/Library/Trash", "trash"))
+        let group = FileService.shared.groupURL ?? FileService.shared.documentsURL
+        systemItems = [
+            ("[root]", FileService.shared.documentsURL, "/", "folder.fill"),
+            ("[App Group]", group, "group.com.nan.filzalite", "person.crop.rectangle.fill"),
+            ("Trash", FileService.shared.trashURL, ".appdata/Library/Trash", "trash.fill")
+        ]
+        super.init(style: .plain)
+        title = NSLocalizedString("Favorites", comment: "")
     }
     required init?(coder: NSCoder) { fatalError() }
-    
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        navigationItem.leftBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Done", comment: ""), style: .done, target: self, action: #selector(close))
+        tableView.backgroundColor = .systemBackground
+        tableView.separatorInset = .zero
+        tableView.rowHeight = 44
+        tableView.tableFooterView = UIView()
+        navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(close))
         navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add, target: self, action: #selector(addCurrent))
     }
-    
+
     @objc private func close() { dismiss(animated: true) }
-    
+
     @objc private func addCurrent() {
         let alert = UIAlertController(
             title: NSLocalizedString("Add Favorite", comment: ""),
@@ -829,7 +890,7 @@ class FavoritesViewController: UITableViewController {
             preferredStyle: .alert
         )
         alert.addTextField { tf in
-            tf.placeholder = "e.g. MyFolder/Sub"
+            tf.placeholder = "MyFolder/Sub"
             tf.autocapitalizationType = .none
             tf.autocorrectionType = .no
         }
@@ -844,61 +905,82 @@ class FavoritesViewController: UITableViewController {
             FileListViewController.favorites.append(url)
             self.favorites = FileListViewController.favorites
             self.tableView.reloadData()
-            self.flash(NSLocalizedString("Added", comment: ""))
         })
         present(alert, animated: true)
     }
-    
+
     private func flash(_ text: String) {
         let a = UIAlertController(title: nil, message: text, preferredStyle: .alert)
         present(a, animated: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { a.dismiss(animated: true) }
     }
-    
+
     override func numberOfSections(in tableView: UITableView) -> Int { 2 }
-    
-    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        section == 0 ? NSLocalizedString("Favorites", comment: "") : NSLocalizedString("System", comment: "")
-    }
-    
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        section == 0 ? favorites.count : systemItems.count
+        section == 0 ? max(favorites.count, 1) : systemItems.count
     }
-    
+    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        section == 0 ? nil : NSLocalizedString("System", comment: "")
+    }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
+        cell.backgroundColor = .systemBackground
+        cell.separatorInset = .zero
+        cell.textLabel?.font = .systemFont(ofSize: 17)
+        cell.detailTextLabel?.font = .systemFont(ofSize: 13)
+        cell.detailTextLabel?.textColor = .secondaryLabel
         if indexPath.section == 0 {
+            if favorites.isEmpty {
+                cell.textLabel?.text = NSLocalizedString("Empty", comment: "")
+                cell.textLabel?.textColor = .secondaryLabel
+                cell.selectionStyle = .none
+                cell.imageView?.image = nil
+                return cell
+            }
             let url = favorites[indexPath.row]
-            cell.textLabel?.text = url.lastPathComponent
+            cell.textLabel?.text = FileListViewController.displayTitle(for: url)
+            cell.textLabel?.textColor = .label
             cell.detailTextLabel?.text = displayPath(for: url)
-            cell.imageView?.image = UIImage(systemName: "star")
+            cell.imageView?.image = UIImage(systemName: "star.fill")
+            cell.imageView?.tintColor = UIColor(red: 0, green: 122/255, blue: 1, alpha: 1)
         } else {
             let item = systemItems[indexPath.row]
             cell.textLabel?.text = item.title
-            cell.detailTextLabel?.text = item.displayPath
+            cell.textLabel?.textColor = .label
+            cell.detailTextLabel?.text = item.path
             cell.imageView?.image = UIImage(systemName: item.icon)
+            cell.imageView?.tintColor = .label
         }
         return cell
     }
-    
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
         if indexPath.section == 0 {
+            guard favorites.indices.contains(indexPath.row) else { return }
             onSelect?(favorites[indexPath.row])
-        } else if let url = systemItems[indexPath.row].url {
-            onSelect?(url)
+        } else {
+            onSelect?(systemItems[indexPath.row].url)
         }
     }
-    
+    override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
+        indexPath.section == 0 && !favorites.isEmpty
+    }
+    override func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
+        guard editingStyle == .delete, favorites.indices.contains(indexPath.row) else { return }
+        FileListViewController.favorites.remove(at: indexPath.row)
+        favorites = FileListViewController.favorites
+        tableView.reloadData()
+    }
+
     private func displayPath(for url: URL) -> String {
         let docs = FileService.shared.documentsURL.standardizedFileURL
         let target = url.standardizedFileURL
         if target == docs { return "/" }
         let docsPath = docs.path
-        let targetPath = target.path
-        if targetPath.hasPrefix(docsPath + "/") {
-            return "/" + String(targetPath.dropFirst(docsPath.count + 1))
+        if target.path.hasPrefix(docsPath + "/") {
+            return "/" + String(target.path.dropFirst(docsPath.count + 1))
         }
-        return url.lastPathComponent
+        return FileListViewController.displayTitle(for: url)
     }
 }
 
@@ -906,29 +988,41 @@ class FavoritesViewController: UITableViewController {
 class PathListViewController: UITableViewController {
     private var paths: [URL]
     var onSelect: ((URL) -> Void)?
-    
+
     init(title: String, paths: [URL], onSelect: @escaping (URL) -> Void) {
         self.paths = paths
         self.onSelect = onSelect
-        super.init(style: .insetGrouped)
+        super.init(style: .plain)
         self.title = title
     }
     required init?(coder: NSCoder) { fatalError() }
-    
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        navigationItem.leftBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Done", comment: ""), style: .done, target: self, action: #selector(close))
+        tableView.separatorInset = .zero
+        tableView.rowHeight = 44
+        tableView.tableFooterView = UIView()
+        navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(close))
+        if paths.isEmpty {
+            let empty = UILabel()
+            empty.text = NSLocalizedString("Empty", comment: "")
+            empty.font = .systemFont(ofSize: 22)
+            empty.textColor = .gray
+            empty.textAlignment = .center
+            tableView.backgroundView = empty
+        }
     }
-    
     @objc private func close() { dismiss(animated: true) }
-    
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { paths.count }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
         let url = paths[indexPath.row]
-        cell.textLabel?.text = url.lastPathComponent
+        cell.textLabel?.text = FileListViewController.displayTitle(for: url)
         cell.detailTextLabel?.text = url.path
+        cell.detailTextLabel?.textColor = .secondaryLabel
         cell.imageView?.image = UIImage(systemName: "clock")
+        cell.imageView?.tintColor = UIColor(red: 0, green: 122/255, blue: 1, alpha: 1)
+        cell.separatorInset = .zero
         return cell
     }
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -936,16 +1030,15 @@ class PathListViewController: UITableViewController {
     }
 }
 
-// 多标签透视预览
+// 多标签：灰底竖向卡片，每张是缩小的文件页，左上角红叉，左右滑关闭
 class TabsPreviewViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
     private var tabs: [URL]
     private let current: URL
     var onSelect: ((URL) -> Void)?
     var onClose: ((URL) -> Void)?
     var onAdd: (() -> Void)?
-    
     private var collectionView: UICollectionView!
-    
+
     init(tabs: [URL], current: URL, onSelect: @escaping (URL) -> Void, onClose: @escaping (URL) -> Void, onAdd: @escaping () -> Void) {
         self.tabs = tabs
         self.current = current
@@ -955,28 +1048,26 @@ class TabsPreviewViewController: UIViewController, UICollectionViewDataSource, U
         super.init(nibName: nil, bundle: nil)
     }
     required init?(coder: NSCoder) { fatalError() }
-    
+
     override func viewDidLoad() {
         super.viewDidLoad()
         title = NSLocalizedString("Tabs", comment: "")
-        view.backgroundColor = .systemGray5
-        
-        navigationItem.leftBarButtonItem = UIBarButtonItem(title: NSLocalizedString("Done", comment: ""), style: .done, target: self, action: #selector(close))
+        view.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? .darkGray : UIColor(white: 2.0/3.0, alpha: 1) }
+        navigationController?.navigationBar.barTintColor = view.backgroundColor
+        navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(close))
         navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add, target: self, action: #selector(addTab))
-        
+
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .vertical
-        layout.minimumLineSpacing = 12
-        layout.sectionInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
-        
+        layout.minimumLineSpacing = 18
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.backgroundColor = .clear
         collectionView.dataSource = self
         collectionView.delegate = self
+        collectionView.alwaysBounceVertical = true
         collectionView.register(TabPreviewCell.self, forCellWithReuseIdentifier: "TabCell")
         view.addSubview(collectionView)
-        
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -984,39 +1075,36 @@ class TabsPreviewViewController: UIViewController, UICollectionViewDataSource, U
             collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
     }
-    
+
     @objc private func close() { dismiss(animated: true) }
-    
     @objc private func addTab() {
         onAdd?()
         tabs = FileListViewController.tabs
         collectionView.reloadData()
     }
-    
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int { tabs.count }
-    
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "TabCell", for: indexPath) as! TabPreviewCell
         let url = tabs[indexPath.item]
-        cell.configure(url: url, isCurrent: url == current)
-        cell.onClose = { [weak self] in
-            self?.closeTab(at: indexPath)
-        }
+        cell.configure(url: url, isCurrent: url.standardizedFileURL == current.standardizedFileURL && indexPath.item == FileListViewController.currentTabIndex)
+        cell.onClose = { [weak self] in self?.closeTab(at: indexPath) }
         return cell
     }
-    
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        CGSize(width: collectionView.bounds.width - 32, height: 200)
+        let width = collectionView.bounds.width * 0.86
+        return CGSize(width: width, height: min(420, width * 1.25))
     }
-    
+    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, insetForSectionAt section: Int) -> UIEdgeInsets {
+        let side = collectionView.bounds.width * 0.07
+        return UIEdgeInsets(top: 16, left: side, bottom: 24, right: side)
+    }
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        FileListViewController.currentTabIndex = indexPath.item
         onSelect?(tabs[indexPath.item])
     }
-    
     private func closeTab(at indexPath: IndexPath) {
-        guard indexPath.item < tabs.count else { return }
-        let url = tabs[indexPath.item]
-        onClose?(url)
+        guard tabs.indices.contains(indexPath.item) else { return }
+        onClose?(tabs[indexPath.item])
         tabs.remove(at: indexPath.item)
         collectionView.reloadData()
     }
@@ -1027,108 +1115,141 @@ class TabPreviewCell: UICollectionViewCell {
     private let titleBar = UIView()
     private let closeBtn = UIButton(type: .system)
     private let titleLabel = UILabel()
-    private let listStack = UIStackView()
+    private let hairline = UIView()
+    private let rows = UIStackView()
     var onClose: (() -> Void)?
-    
+
     override init(frame: CGRect) {
         super.init(frame: frame)
-        
+        contentView.backgroundColor = .clear
         card.translatesAutoresizingMaskIntoConstraints = false
         card.backgroundColor = .systemBackground
-        card.layer.cornerRadius = 14
+        card.layer.cornerRadius = 16
+        card.clipsToBounds = true
         contentView.addSubview(card)
-        
+        contentView.layer.shadowColor = UIColor.black.cgColor
+        contentView.layer.shadowOpacity = 0.18
+        contentView.layer.shadowRadius = 8
+        contentView.layer.shadowOffset = CGSize(width: 0, height: 4)
+
         titleBar.translatesAutoresizingMaskIntoConstraints = false
+        titleBar.backgroundColor = UIColor(white: 0.96, alpha: 1)
         card.addSubview(titleBar)
-        
         closeBtn.translatesAutoresizingMaskIntoConstraints = false
-        closeBtn.setImage(UIImage(systemName: "xmark"), for: .normal)
+        closeBtn.setImage(UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)), for: .normal)
         closeBtn.tintColor = .systemRed
         closeBtn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         titleBar.addSubview(closeBtn)
-        
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         titleLabel.textAlignment = .center
         titleBar.addSubview(titleLabel)
-        
-        listStack.translatesAutoresizingMaskIntoConstraints = false
-        listStack.axis = .vertical
-        listStack.spacing = 4
-        card.addSubview(listStack)
-        
+        hairline.translatesAutoresizingMaskIntoConstraints = false
+        hairline.backgroundColor = UIColor(white: 0.85, alpha: 1)
+        card.addSubview(hairline)
+        rows.translatesAutoresizingMaskIntoConstraints = false
+        rows.axis = .vertical
+        rows.spacing = 0
+        card.addSubview(rows)
         NSLayoutConstraint.activate([
             card.topAnchor.constraint(equalTo: contentView.topAnchor),
             card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-            
             titleBar.topAnchor.constraint(equalTo: card.topAnchor),
             titleBar.leadingAnchor.constraint(equalTo: card.leadingAnchor),
             titleBar.trailingAnchor.constraint(equalTo: card.trailingAnchor),
-            titleBar.heightAnchor.constraint(equalToConstant: 44),
-            
+            titleBar.heightAnchor.constraint(equalToConstant: 40),
+            closeBtn.leadingAnchor.constraint(equalTo: titleBar.leadingAnchor, constant: 8),
             closeBtn.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
-            closeBtn.leadingAnchor.constraint(equalTo: titleBar.leadingAnchor, constant: 12),
-            
-            titleLabel.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
+            closeBtn.widthAnchor.constraint(equalToConstant: 32),
+            closeBtn.heightAnchor.constraint(equalToConstant: 32),
             titleLabel.centerXAnchor.constraint(equalTo: titleBar.centerXAnchor),
-            titleLabel.widthAnchor.constraint(lessThanOrEqualTo: titleBar.widthAnchor, multiplier: 0.6),
-            
-            listStack.topAnchor.constraint(equalTo: titleBar.bottomAnchor, constant: 8),
-            listStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
-            listStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12)
+            titleLabel.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
+            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: closeBtn.trailingAnchor, constant: 4),
+            hairline.topAnchor.constraint(equalTo: titleBar.bottomAnchor),
+            hairline.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            hairline.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            hairline.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
+            rows.topAnchor.constraint(equalTo: hairline.bottomAnchor),
+            rows.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            rows.trailingAnchor.constraint(equalTo: card.trailingAnchor)
         ])
-        
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         contentView.addGestureRecognizer(pan)
     }
     required init?(coder: NSCoder) { fatalError() }
-    
+
     func configure(url: URL, isCurrent: Bool) {
         titleLabel.text = FileListViewController.displayTitle(for: url)
         card.layer.borderWidth = isCurrent ? 2 : 0
         card.layer.borderColor = isCurrent ? UIColor.systemBlue.cgColor : nil
-        
-        listStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let items = FileService.shared.contents(of: url).prefix(5)
+        rows.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        let items = Array(FileService.shared.contents(of: url).prefix(7))
         if items.isEmpty {
             let empty = UILabel()
             empty.text = NSLocalizedString("Empty", comment: "")
             empty.font = .systemFont(ofSize: 13)
             empty.textColor = .tertiaryLabel
-            listStack.addArrangedSubview(empty)
-        } else {
-            for item in items {
-                let row = UILabel()
-                row.font = .systemFont(ofSize: 13)
-                row.text = (item.isDirectory ? "📁 " : "📄 ") + item.name
-                row.lineBreakMode = .byTruncatingTail
-                listStack.addArrangedSubview(row)
-            }
+            empty.textAlignment = .center
+            empty.heightAnchor.constraint(equalToConstant: 44).isActive = true
+            rows.addArrangedSubview(empty)
+            return
+        }
+        for item in items {
+            rows.addArrangedSubview(makeRow(item))
         }
     }
-    
+
+    private func makeRow(_ item: FileItem) -> UIView {
+        let row = UIView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        let icon = UIImageView(image: UIImage(systemName: item.isDirectory ? "folder.fill" : "doc.fill"))
+        icon.tintColor = item.isDirectory ? .systemBlue : .systemGray
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        let name = UILabel()
+        name.text = item.name
+        name.font = .systemFont(ofSize: 13)
+        name.translatesAutoresizingMaskIntoConstraints = false
+        let line = UIView()
+        line.backgroundColor = UIColor(white: 0.9, alpha: 1)
+        line.translatesAutoresizingMaskIntoConstraints = false
+        row.addSubview(icon)
+        row.addSubview(name)
+        row.addSubview(line)
+        NSLayoutConstraint.activate([
+            icon.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 12),
+            icon.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 18),
+            icon.heightAnchor.constraint(equalToConstant: 18),
+            name.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
+            name.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -12),
+            name.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            line.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+            line.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+            line.bottomAnchor.constraint(equalTo: row.bottomAnchor),
+            line.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale)
+        ])
+        return row
+    }
+
     @objc private func closeTapped() { onClose?() }
-    
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         let translation = gesture.translation(in: contentView)
         switch gesture.state {
         case .changed:
             contentView.transform = CGAffineTransform(translationX: translation.x, y: 0)
-            contentView.alpha = max(0.3, 1 - abs(translation.x) / 200)
+            contentView.alpha = max(0.35, 1 - abs(translation.x) / 220)
         case .ended, .cancelled:
-            if abs(translation.x) > 100 {
-                UIView.animate(withDuration: 0.2, animations: {
-                    self.contentView.transform = CGAffineTransform(translationX: translation.x > 0 ? 400 : -400, y: 0)
+            if abs(translation.x) > 90 {
+                let direction: CGFloat = translation.x > 0 ? 1 : -1
+                UIView.animate(withDuration: 0.18, animations: {
+                    self.contentView.transform = CGAffineTransform(translationX: direction * 500, y: 0)
                     self.contentView.alpha = 0
-                }) { _ in
-                    self.onClose?()
-                    self.contentView.transform = .identity
-                    self.contentView.alpha = 1
-                }
+                }) { _ in self.onClose?() }
             } else {
-                UIView.animate(withDuration: 0.2) {
+                UIView.animate(withDuration: 0.18) {
                     self.contentView.transform = .identity
                     self.contentView.alpha = 1
                 }
@@ -1152,7 +1273,7 @@ class SettingsViewController: UITableViewController {
     @objc private func close() { dismiss(animated: true) }
     
     override func numberOfSections(in tableView: UITableView) -> Int { 1 }
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 2 }
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 3 }
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         NSLocalizedString("General", comment: "")
     }
@@ -1162,6 +1283,9 @@ class SettingsViewController: UITableViewController {
             cell.textLabel?.text = NSLocalizedString("New Tab Directory", comment: "")
             let rel = UserDefaults.standard.string(forKey: "defaultNewTabRelativePath") ?? ""
             cell.detailTextLabel?.text = rel.isEmpty ? "/" : rel
+            cell.accessoryType = .disclosureIndicator
+        } else if indexPath.row == 1 {
+            cell.textLabel?.text = NSLocalizedString("Sort Buttons", comment: "")
             cell.accessoryType = .disclosureIndicator
         } else {
             cell.textLabel?.text = NSLocalizedString("Clear Cache", comment: "")
@@ -1174,6 +1298,8 @@ class SettingsViewController: UITableViewController {
         tableView.deselectRow(at: indexPath, animated: true)
         if indexPath.row == 0 {
             editNewTabDirectory()
+        } else if indexPath.row == 1 {
+            navigationController?.pushViewController(SortButtonsViewController(), animated: true)
         } else {
             clearCache()
         }
@@ -1211,6 +1337,47 @@ class SettingsViewController: UITableViewController {
             a.addAction(UIAlertAction(title: "OK", style: .default))
             present(a, animated: true)
         }
+    }
+}
+
+class SortButtonsViewController: UITableViewController {
+    private let titles = ["Name", "Date", "Size", "Type"]
+    private var enabled: Set<Int>
+
+    init() {
+        enabled = Set(FileListViewController.enabledSortTags())
+        super.init(style: .insetGrouped)
+        title = NSLocalizedString("Sort Buttons", comment: "")
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        tableView.rowHeight = 52
+    }
+
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { titles.count }
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        cell.textLabel?.text = NSLocalizedString(titles[indexPath.row], comment: "")
+        cell.textLabel?.font = .systemFont(ofSize: 17)
+        cell.accessoryType = enabled.contains(indexPath.row) ? .checkmark : .none
+        cell.tintColor = UIColor(red: 0, green: 122/255, blue: 1, alpha: 1)
+        return cell
+    }
+
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        if enabled.contains(indexPath.row) {
+            guard enabled.count > 1 else { return }
+            enabled.remove(indexPath.row)
+        } else {
+            enabled.insert(indexPath.row)
+        }
+        let order = titles.indices.filter { enabled.contains($0) }
+        UserDefaults.standard.set(order, forKey: FileListViewController.sortButtonKey)
+        tableView.reloadData()
     }
 }
 
